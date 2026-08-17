@@ -1,0 +1,13 @@
+"phase_margin","curve","scaled_variance"
+0.4,"Empirical",4.62089918227092
+0.5,"Empirical",3.98645051506738
+0.6,"Empirical",3.61624996490254
+0.7,"Empirical",3.05168091341884
+0.8,"Empirical",2.57741754819755
+0.9,"Empirical",2.29326504830656
+0.4,"Theory",5
+0.5,"Theory",4
+0.6,"Theory",3.33333333333333
+0.7,"Theory",2.85714285714286
+0.8,"Theory",2.5
+0.9,"Theory",2.22222222222222

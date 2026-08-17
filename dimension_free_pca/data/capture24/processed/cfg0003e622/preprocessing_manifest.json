@@ -1,0 +1,13 @@
+{
+  "dataset": "CAPTURE-24",
+  "source_archive": "/home/zhanggy/large_domain_FDA/data/capture24/source/capture24.zip",
+  "participants": 151,
+  "grid_size": 17280,
+  "epoch_seconds": 5,
+  "curve_file": "wake_aligned_log1p_enmo_mg_float32.bin",
+  "curve_dtype": "little-endian float32, C row-major",
+  "coverage_file": "wake_aligned_coverage_uint8.bin",
+  "coverage_dtype": "uint8, C row-major",
+  "transformation": "log1p(max(sqrt(x^2+y^2+z^2)-1,0)*1000) after 5-second averaging",
+  "alignment": "circular 24-hour rotation to the end of the longest annotation-defined main sleep episode"
+}

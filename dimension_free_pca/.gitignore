@@ -1,0 +1,30 @@
+# OS / editor / language caches
+.DS_Store
+Thumbs.db
+.Rhistory
+.RData
+.Rproj.user/
+__pycache__/
+*.py[cod]
+*.part
+
+# Public raw datasets are downloaded by the real-data pipeline and are not versioned.
+data/eegmmidb/raw/
+data/capture24/source/
+
+# Replication-level Monte Carlo output is generated locally and is not versioned.
+output/data/replicate/
+
+# Run registries, truth/config snapshots, long run-specific summaries, tables, and logs
+# are reproducible generated artifacts. Compact manuscript-facing summaries are retained.
+output/data/manifest/
+output/data/truth/
+output/table/
+output/log/
+output/data/summary/experiment_*cfg*.csv
+output/data/summary/robustness_*cfg*.csv
+
+# Run-specific real-data artifacts are generated locally. Compact named outputs are retained.
+output/real_data/manifest/
+output/real_data/eegmmidb/real_*
+output/real_data/capture24/real_*

@@ -1,0 +1,19 @@
+"score_distribution","quantity","variance","theoretical_sd_over_empirical_sd"
+"Gaussian","alpha","Universal",1.08058562430618
+"t12","alpha","Universal",0.951252065247762
+"Uniform","alpha","Universal",1.54193136516124
+"Gaussian","alpha","Full cumulant",1.08058562430618
+"t12","alpha","Full cumulant",1.10385680183685
+"Uniform","alpha","Full cumulant",1.0291298902664
+"Gaussian","Delta","Universal",1.0681383286971
+"t12","Delta","Universal",0.944221153413698
+"Uniform","Delta","Universal",1.49840232430808
+"Gaussian","Delta","Full cumulant",1.0681383286971
+"t12","Delta","Full cumulant",1.09569795505514
+"Uniform","Delta","Full cumulant",1.00007734094496
+"Gaussian","r2","Universal",1.08252690302382
+"t12","r2","Universal",0.955253996766345
+"Uniform","r2","Universal",1.52727214982563
+"Gaussian","r2","Full cumulant",1.08252690302382
+"t12","r2","Full cumulant",1.10850074374107
+"Uniform","r2","Full cumulant",1.01934590311199

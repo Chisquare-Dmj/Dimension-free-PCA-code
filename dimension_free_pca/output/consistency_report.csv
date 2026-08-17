@@ -1,0 +1,8 @@
+"analysis_setting","comparison","maximum_absolute_difference","status"
+"Experiment 3A","means at n=150,300,600 rounded to three decimals",0,"matches_locked_results"
+"Experiment 3B","means at n=150,300,600 rounded to three decimals",0,"matches_locked_results"
+"Experiment 3A replication file","SHA-256",0,"matches_locked_results"
+"Experiment 3B replication file","SHA-256",0,"matches_locked_results"
+"Experiment 2B replication file","SHA-256",0,"matches_locked_results"
+"EEGMMIDB deterministic point estimates","exact numeric comparison",0,"matches_locked_results"
+"CAPTURE-24 deterministic point estimates","exact numeric comparison",0,"matches_locked_results"
