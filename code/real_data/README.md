@@ -39,3 +39,12 @@ missingness and three-hour main-sleep sensitivities. EEG uses K0 values 8, 10,
 and 12 and reports the conventional and corrected PC2 lateralization point
 estimates. Because population truth is unavailable in real data, these
 comparisons are descriptive rather than accuracy or bias assessments.
+
+Software versions recorded on the computation server are listed in
+`software_versions.txt` at the repository root. The full EEG preprocessing path
+uses the R packages `edfReader` and `signal`; CAPTURE-24 preprocessing uses
+`jsonlite`, Python 3 with `numpy` and `pandas`, and the system commands `curl`,
+`unzip`, and `sha256sum`. On Windows, WSL or another Unix-compatible environment
+is recommended for the complete CAPTURE-24 rebuild. Analysis from the included
+processed caches does not require the CAPTURE-24 download/preprocessing command-line
+tools.

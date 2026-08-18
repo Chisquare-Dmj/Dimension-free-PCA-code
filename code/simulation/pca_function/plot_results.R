@@ -381,7 +381,7 @@ plot_k0_results <- function(root = PROJECT_ROOT, run_id = NULL) {
                       s$r2_n_overdeflation_rmse)
   )
   save_publication_figure(
-    "overdeflation_rmse", plot_data,
+    "k0_sensitivity_rmse", plot_data,
     function(x) {
       quantities <- c("alpha", "Delta", "r2"); colors <- c("#0072B2", "#D55E00", "#009E73")
       plot(NA, xlim = range(x$n), ylim = range(c(0, x$n_paired_rmse)),
@@ -459,7 +459,7 @@ plot_figure_4 <- function(root = PROJECT_ROOT, run_ids = list()) {
 }
 
 plot_robustness_results <- function(root = PROJECT_ROOT, run_ids = list()) {
-  list(overdeflation = plot_k0_results(root, run_ids[["robustness_k0"]]),
+  list(k0_sensitivity = plot_k0_results(root, run_ids[["robustness_k0"]]),
        cumulant = plot_universality_results(root, run_ids[["robustness_universality"]]))
 }
 

@@ -9,7 +9,8 @@ This directory contains the active simulation and real-data code for
 - `real_data/`: dataset-specific download/preprocessing code and shared analysis helpers.
 - `install_packages.R`: installs the additional R packages used by real-data preprocessing.
 
-Run commands from the repository root.
+Run commands from the repository root. Recorded software versions are listed in
+`software_versions.txt` at the repository root.
 
 ```bash
 # Lightweight code check
@@ -37,3 +38,7 @@ Both simulation and real-data analyses call
 implementation of the estimators. CAPTURE-24 uses Python only for streaming and
 compressing the raw accelerometry archive into the deterministic five-second
 analysis cache.
+
+For a full CAPTURE-24 rebuild on native Windows, use a Unix-compatible environment
+such as WSL; the raw-data pipeline calls `curl`, `unzip`, `sha256sum`, and
+`python3`. Cache-based `action=analyze` does not require these system commands.

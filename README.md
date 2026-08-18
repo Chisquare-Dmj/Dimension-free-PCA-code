@@ -15,10 +15,11 @@ simulation output.
 ## Repository contents
 
 ```text
-code/          simulation and real-data source code
-data/          processed real-data caches and data documentation
-manuscript/    manuscript/supplement figure files
-output/        compact manuscript-facing numerical summaries
+code/                  simulation and real-data source code
+data/                  processed real-data caches and data documentation
+manuscript/            manuscript/supplement figure files
+output/                compact manuscript-facing numerical summaries
+software_versions.txt  recorded computation-server software environment
 ```
 
 Not versioned:
@@ -45,6 +46,10 @@ the real-data pipeline with
 ```bash
 Rscript code/install_packages.R
 ```
+
+The software environment recorded on the computation server used for the
+manuscript analyses is listed in `software_versions.txt`. The install helper
+installs missing packages from CRAN; it is not a package lockfile.
 
 A lightweight simulation check is
 
@@ -194,9 +199,9 @@ For `c = (p-1)/n`, each spike is set by
 `alpha = 1 + sqrt(c/(1-Delta))`. Saved diagnostics include naive and corrected
 relative bias, scaled empirical variance, all three interval lengths, coverage,
 and the indicator that the phase lower bound exceeds `0.20`. Every saved row is
-labelled `phase_region=main` or `phase_region=boundary`. Figure 2(c,d) uses only
-the regular-interior main grid; the boundary rows remain available for a
-separate finite-sample stress analysis. Setting `K0=M` avoids extra leading-component removal in this baseline conditioning experiment.
+labelled `phase_region=main` or `phase_region=boundary`. The corresponding
+phase-margin diagnostics use only the regular-interior main grid; the boundary
+rows remain available for a separate finite-sample stress analysis. Setting `K0=M` avoids extra leading-component removal in this baseline conditioning experiment.
 
 ## 7. Experiment 2A: Functional Inference Across Designs
 
@@ -235,8 +240,8 @@ Both counts are configurable. Each result row also stores the actual squared
 sample/population eigenvector alignment.
 
 Experiment 2A remains the broad `3 x 3` robustness comparison and has its own
-coverage diagnostic figure. The representative theorem-calibration Figure 3
-is generated from Experiment 2B, not selected retrospectively from this grid.
+coverage diagnostic. The representative theorem-calibration plots are generated
+from Experiment 2B, not selected retrospectively from this grid.
 
 ## 8. Experiment 2B: Functional Inference Asymptotics
 
@@ -262,13 +267,14 @@ functional truncation changes.
 
 The middle spike is specified in advance as the representative interior regular
 component, away from both the phase boundary and the extreme strong-signal
-regime. Figure 3 uses its `n=300` studentized errors. The summary CSV reports
+regime. The joint standardized-error diagnostic uses its `n=300` studentized
+errors. The summary CSV reports
 relative bias and relative RMSE for `alpha`; bias and RMSE for `Delta` and
 `r2`; empirical SD; average estimated SE; SD/mean-SE; coverage; `sqrt(n)`
 times RMSE; and `sqrt(n)` times mean SE. Its dedicated LaTeX writer produces
 three panels: population spike, phase margin, and reliability.
-The final Figure 3 panel plots `Z_alpha` against `Z_Delta` and `Z_r2`, with
-`Z_T=(hat_T-T)/se(hat_T)` and a `y=x` reference, so it directly displays the
+The final joint-calibration panel plots `Z_alpha` against `Z_Delta` and `Z_r2`,
+with `Z_T=(hat_T-T)/se(hat_T)` and a `y=x` reference, so it directly displays the
 joint rank-one first-order fluctuation without dividing by a small derivative.
 
 ## 9. Experiment 3A: Simple Direction
@@ -469,7 +475,8 @@ Simulation code uses base R and the recommended `parallel` package. Real-data
 preprocessing additionally uses `edfReader`, `signal`, and `jsonlite`.
 CAPTURE-24 preprocessing uses Python 3 with `numpy` and `pandas`, plus the
 system commands `curl`, `unzip`, and `sha256sum` for download/integrity checks.
-The statistical analysis itself remains in R.
+The statistical analysis itself remains in R. Recorded versions are given in
+`software_versions.txt`.
 
 The larger functional experiments are computationally intensive. Memory use
 grows with both the observation size and the number of active workers. In
@@ -485,3 +492,9 @@ than analysis errors; they should disappear when this cleaned repository is
 added from a fresh checkout. The generated long run-specific output files have
 also been excluded, so the repository does not require Git's Windows
 `core.longpaths` option.
+
+For a complete CAPTURE-24 rebuild on Windows, a Unix-compatible environment
+such as WSL is recommended because the download and integrity pipeline calls
+`curl`, `unzip`, `sha256sum`, and `python3`. Analysis of the included processed
+CAPTURE-24 cache with `action=analyze` does not require those command-line
+tools.
