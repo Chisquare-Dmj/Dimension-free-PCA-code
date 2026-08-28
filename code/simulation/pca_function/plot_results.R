@@ -381,7 +381,7 @@ plot_k0_results <- function(root = PROJECT_ROOT, run_id = NULL) {
                       s$r2_n_overdeflation_rmse)
   )
   save_publication_figure(
-    "k0_sensitivity_rmse", plot_data,
+    "overdeflation_rmse", plot_data,
     function(x) {
       quantities <- c("alpha", "Delta", "r2"); colors <- c("#0072B2", "#D55E00", "#009E73")
       plot(NA, xlim = range(x$n), ylim = range(c(0, x$n_paired_rmse)),
@@ -393,7 +393,7 @@ plot_k0_results <- function(root = PROJECT_ROOT, run_id = NULL) {
       legend("topright", quantities, col = colors, pch = 15:17, lty = 1, bty = "n")
     }, root, source_runs = setNames(source, experiment),
     setting = "Haar covariance; Uniform scores; spike 2; K0=5 versus baseline K0=M=3",
-    quantity = "n times paired K0-sensitivity RMSE", comparison = "alpha, Delta, and r2"
+    quantity = "n times paired over-deflation RMSE", comparison = "alpha, Delta, and r2"
   )
 }
 
@@ -448,6 +448,96 @@ plot_functional_asymptotic_bundle <- function(root = PROJECT_ROOT, run_id = NULL
        joint = plot_figure_3(root, list(experiment_2b_functional_asymptotics = run_id)))
 }
 
+plot_eigengap_results <- function(root = PROJECT_ROOT, run_id = NULL) {
+  experiment <- "experiment_3d_eigengap_inference"
+  source <- resolved_run_id(experiment, root, run_id)
+  summary <- summarize_eigengap_inference(read_required_csv(
+    resolve_run_artifact(experiment, "replicate", root, source)
+  ))
+  summary$source_run_id <- source
+  write_csv_atomic(summary, result_path("summary", "eigengap_inference_symmetric.csv", root))
+  type1 <- summary[summary$delta == 0,
+                   c("n", "replications", "fpca_rejection_rate",
+                     "fpca_anderson_rejection_rate", "proposed_rejection_rate")]
+  names(type1)[3:5] <- c(
+    "fpca_general_type1", "fpca_anderson_type1", "proposed_type1"
+  )
+  type1$nominal_level <- 0.05
+  write_csv_atomic(type1, result_path("summary", "eigengap_type1_symmetric.csv", root))
+  write_latex_table(
+    type1, result_path("table", "eigengap_type1_symmetric.tex", root),
+    digits = 3L,
+    caption = "Empirical type-I error for symmetric adjacent-root equality tests",
+    label = "tab:eigengap-type1-symmetric"
+  )
+  colors <- c(FPCA = "#D55E00", Anderson = "#009E73", Proposed = "#0072B2")
+  line_types <- c(FPCA = 2, Anderson = 3, Proposed = 1)
+  plot_metric <- function(name, metric_map, ylab, reference = NULL) {
+    long <- bind_rows_base(lapply(names(metric_map), function(method) {
+      data.frame(
+        n = summary$n, delta = summary$delta, method = method,
+        value = summary[[metric_map[[method]]]]
+      )
+    }))
+    save_publication_figure(
+      name, long, function(x) {
+        limits <- range(c(x$value, reference), finite = TRUE)
+        plot(range(x$delta), limits, type = "n", xlab = expression(delta), ylab = ylab)
+        if (!is.null(reference)) abline(h = reference, col = "grey45", lty = 3)
+        for (n_value in sort(unique(x$n))) for (method in names(metric_map)) {
+          z <- x[x$n == n_value & x$method == method, ]
+          lines(z$delta, z$value, type = "b", pch = match(n_value, sort(unique(x$n))) + 14,
+                col = colors[[method]], lty = line_types[[method]])
+        }
+        legend("bottomright", names(metric_map), col = colors[names(metric_map)],
+               lty = line_types[names(metric_map)], pch = 16, bty = "n")
+        legend("topleft", paste0("n = ", sort(unique(x$n))),
+               pch = seq_along(unique(x$n)) + 14, bty = "n")
+      }, root, source_runs = setNames(source, experiment),
+      setting = "Experiment 3D; n=150,300,600; local multiplicity-two alternatives",
+      quantity = paste(unname(metric_map), collapse = "; "),
+      comparison = paste(names(metric_map), collapse = " versus ")
+    )
+  }
+  coverage <- plot_metric(
+    "eigengap_coverage_symmetric",
+    c(Proposed = "proposed_coverage"),
+    "Empirical coverage", 0.95
+  )
+  rejection <- plot_metric(
+    "eigengap_rejection_rate_symmetric",
+    c(FPCA = "fpca_rejection_rate", Anderson = "fpca_anderson_rejection_rate",
+      Proposed = "proposed_rejection_rate"),
+    "Rejection probability", 0.05
+  )
+
+  replicate <- read_required_csv(resolve_run_artifact(experiment, "replicate", root, source))
+  null <- replicate[replicate$delta == 0 & is.finite(replicate$T2_proposed), ]
+  qq <- bind_rows_base(lapply(sort(unique(null$n)), function(n_value) {
+    observed <- sort(null$T2_proposed[null$n == n_value])
+    data.frame(n = n_value, theoretical = qchisq(ppoints(length(observed)), df = 2), observed = observed)
+  }))
+  qq_output <- save_publication_figure(
+    "eigengap_null_chisq_qq_symmetric", qq, function(x) {
+      limits <- range(c(x$theoretical, x$observed), finite = TRUE)
+      plot(limits, limits, type = "n", xlab = expression(chi[2]^2~"quantile"),
+           ylab = expression("Empirical"~T[Proposed]^2~"quantile"))
+      abline(0, 1, col = "grey40", lty = 2)
+      palette <- c("#0072B2", "#D55E00", "#009E73")
+      for (index in seq_along(sort(unique(x$n)))) {
+        z <- x[x$n == sort(unique(x$n))[index], ]
+        points(z$theoretical, z$observed, pch = 16, cex = 0.45, col = palette[index])
+      }
+      legend("topleft", paste0("n = ", sort(unique(x$n))), col = palette,
+             pch = 16, bty = "n")
+    }, root, source_runs = setNames(source, experiment),
+    setting = "Experiment 3D; equality null delta=0",
+    quantity = "proposed squared eigengap statistic",
+    comparison = "chi-square df=2 reference"
+  )
+  list(coverage = coverage, rejection = rejection, null_qq = qq_output)
+}
+
 plot_figure_2 <- function(root = PROJECT_ROOT, run_ids = list()) {
   list(panel = plot_panel_phase_results(root, run_ids[["experiment_1a_panel_phase"]]),
        margin = plot_phase_margin_results(root, run_ids[["experiment_1b_phase_margin"]]))
@@ -459,7 +549,7 @@ plot_figure_4 <- function(root = PROJECT_ROOT, run_ids = list()) {
 }
 
 plot_robustness_results <- function(root = PROJECT_ROOT, run_ids = list()) {
-  list(k0_sensitivity = plot_k0_results(root, run_ids[["robustness_k0"]]),
+  list(overdeflation = plot_k0_results(root, run_ids[["robustness_k0"]]),
        cumulant = plot_universality_results(root, run_ids[["robustness_universality"]]))
 }
 
@@ -473,6 +563,7 @@ plot_experiment_results <- function(experiment, root = PROJECT_ROOT, run_id = NU
     experiment_3a_simple_direction = plot_simple_direction_results(root, run_id),
     experiment_3b_repeated_eigenspace = plot_repeated_eigenspace_results(root, run_id),
     experiment_3c_grid_saturation = plot_grid_saturation_results(root, run_id),
+    experiment_3d_eigengap_inference = plot_eigengap_results(root, run_id),
     robustness_k0 = plot_k0_results(root, run_id),
     robustness_universality = plot_universality_results(root, run_id),
     stop("No plot specification for experiment: ", experiment)

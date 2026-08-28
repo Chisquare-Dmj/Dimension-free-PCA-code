@@ -1,15 +1,14 @@
 # Manuscript Figures
 
-- `simulation/` contains the simulation PDF/PNG figure files.
-- `real_data/eegmmidb/` contains the EEG spectral and inference figures.
-- `real_data/capture24/` contains the CAPTURE-24 spectral, effective-rank, PVE,
-  reliability, eigenvalue-comparison, and functional-curve figures.
+- `simulation/` contains independent simulation PDF/PNG figures.
+- `real_data/eegmmidb/` contains independent EEG spectral and inference figures.
+- `real_data/capture24/` contains independent CAPTURE spectral, effective-rank,
+  PVE, reliability, FPCA-versus-Proposed, and functional-curve figures.
 
-Each PDF is a title-free statistical panel. Multi-panel layout, panel labels,
-and captions are handled in the manuscript source. PNG copies are retained for
-quick inspection; PDF files remain vector graphics.
+Every PDF is one title-free statistical panel. Panel labels, captions, and
+multi-panel layout belong in LaTeX. Every figure has a matching CSV under
+`output/data/summary/` or `output/real_data/<dataset>/` and is indexed by
+`output/figure_output_summary.csv`.
 
-The corresponding compact plot-data CSV files are kept under
-`output/data/summary/` or `output/real_data/<dataset>/`. Full run-specific
-artifacts and Monte Carlo replication-level files are regenerated locally and
-are not committed to the public repository.
+PNG figures are exported at 200 dpi on a compact single-panel canvas. Matching
+PDF files remain vector graphics.

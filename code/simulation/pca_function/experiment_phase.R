@@ -142,7 +142,7 @@ prepare_phase_margin_config <- function(config) {
 run_phase_margin_experiment <- function(config = list()) {
   cfg <- prepare_phase_margin_config(merge_config(default_phase_margin_config(), config))
   validate_inference_config(cfg, c("n", "p"))
-  if (cfg$M != 1L || cfg$K0 != 1L) stop("Experiment 1B baseline requires M=K0=1; sensitivity to K0 is studied separately.")
+  if (cfg$M != 1L || cfg$K0 != 1L) stop("Experiment 1B baseline requires M=K0=1; over-deflation is studied separately.")
   if (!length(cfg$Delta_grid)) stop("Delta_grid must not be empty.")
   if (any(cfg$Delta_grid <= 0 | cfg$Delta_grid >= 1)) stop("Delta_grid values must lie strictly between 0 and 1.")
   experiment <- "experiment_1b_phase_margin"

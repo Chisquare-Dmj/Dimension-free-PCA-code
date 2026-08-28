@@ -21,6 +21,10 @@ default_eegmmidb_config <- function() {
     confidence_level = 0.95,
     certification_threshold = 0.20,
     minimum_relative_gap = 0.05,
+    eigengap_definition = "symmetric-v1",
+    fpca_equality_draws = 100000L,
+    fpca_equality_seed = 82471L,
+    bootstrap_replications = 500L,
     master_seed = MASTER_SEED,
     ncores = 1L,
     root = PROJECT_ROOT,
@@ -38,6 +42,11 @@ validate_eegmmidb_config <- function(config) {
   }
   if (config$J > config$K0) stop("J cannot exceed K0.")
   if (!config$K0 %in% config$K0_values) stop("K0_values must contain the primary K0.")
+  if (!identical(config$eigengap_definition, "symmetric-v1") ||
+      config$fpca_equality_draws < 100000L) {
+    stop("EEGMMIDB requires symmetric eigengaps and at least 100000 FPCA null draws.")
+  }
+  validate_positive_integer(config$bootstrap_replications, "bootstrap_replications")
   invisible(config)
 }
 
@@ -278,6 +287,50 @@ eeg_lateralization_comparison <- function(table, pc = 2L) {
   )
 }
 
+bootstrap_eeg_lateralization <- function(weighted_X, anchor_vector, direction,
+                                         K0, B, confidence_level, master_seed,
+                                         ncores = 1L, pc = 2L) {
+  n <- nrow(weighted_X)
+  direction <- normalize_direction(direction)
+  anchor_vector <- normalize_direction(anchor_vector)
+  worker <- function(replication) {
+    set.seed(replication_seed(31L, replication, master_seed))
+    indices <- sample.int(n, n, replace = TRUE)
+    fit <- gram_pca(weighted_X[indices, , drop = FALSE], vectors = TRUE, center = TRUE)
+    vector <- feature_eigenvector(fit, pc)
+    if (sum(vector * anchor_vector) < 0) vector <- -vector
+    fpca <- sum(vector * direction)
+    proposed <- dimension_free_inference(
+      fit$values, pc, K0, n, confidence_level
+    )
+    data.frame(
+      replication = replication,
+      fpca_projection = fpca,
+      proposed_projection = fpca / sqrt(proposed$hat_r2),
+      proposed_r2 = proposed$hat_r2,
+      stringsAsFactors = FALSE
+    )
+  }
+  bind_rows_base(parallel_map(seq_len(B), worker, ncores))
+}
+
+summarize_eeg_lateralization_bootstrap <- function(draws, point_table,
+                                                    confidence_level = 0.95,
+                                                    pc = 2L) {
+  point <- point_table[point_table$spike_index == pc, , drop = FALSE]
+  probabilities <- c((1 - confidence_level) / 2, 1 - (1 - confidence_level) / 2)
+  bind_rows_base(lapply(c("FPCA", "Proposed"), function(method) {
+    column <- if (method == "FPCA") "fpca_projection" else "proposed_projection"
+    estimate <- if (method == "FPCA") point$raw_lateralization else point$corrected_lateralization
+    interval <- quantile(draws[[column]], probabilities, na.rm = TRUE, names = FALSE)
+    data.frame(
+      method = method, estimate = estimate,
+      percentile_ci_lower = interval[1], percentile_ci_upper = interval[2],
+      bootstrap_replications = nrow(draws), stringsAsFactors = FALSE
+    )
+  }))
+}
+
 run_eegmmidb_analysis <- function(config = list()) {
   cfg <- validate_eegmmidb_config(merge_config(default_eegmmidb_config(), config))
   prepared <- prepare_eegmmidb(cfg)
@@ -288,9 +341,15 @@ run_eegmmidb_analysis <- function(config = list()) {
     fit, cfg$K0, cfg$J, cfg$confidence_level, cfg$certification_threshold,
     cfg$minimum_relative_gap,
     directions = list(lateralization = direction),
-    orientation_direction = direction
+    orientation_direction = direction,
+    equality_draws = cfg$fpca_equality_draws,
+    equality_seed = cfg$fpca_equality_seed
   )
   table <- inference$table
+  primary_gaps <- inference$gaps
+  eeg_candidate_pairs <- "PC3-PC4"
+  table$prespecified_cluster_member <- table$spike_index %in% 3:4
+  primary_gaps$prespecified_cluster_member <- primary_gaps$pair %in% eeg_candidate_pairs
   table$dataset <- "EEGMMIDB_R04"
   table$n_subjects <- n
   table$p_channels <- prepared$n_channels
@@ -301,14 +360,35 @@ run_eegmmidb_analysis <- function(config = list()) {
     fit, cfg$K0_values, min(cfg$J, 4L), cfg$confidence_level,
     cfg$certification_threshold, cfg$minimum_relative_gap
   )
+  gap_sensitivity <- gap_k0_sensitivity(
+    fit, cfg$K0_values, cfg$J, cfg$confidence_level
+  )
   fpca_comparison <- eeg_lateralization_comparison(table, 2L)
+  compact_components <- compact_real_component_inference(table)
+  compact_gaps <- compact_real_gap_inference(primary_gaps)
+  cluster_inference <- prespecified_cluster_inference(primary_gaps, eeg_candidate_pairs)
+
+  pipeline_log(sprintf("EEGMMIDB | MATCHED LATERALIZATION BOOTSTRAP START | B=%d",
+                       cfg$bootstrap_replications))
+  bootstrap_started_at <- Sys.time()
+  bootstrap_draws <- bootstrap_eeg_lateralization(
+    prepared$weighted_X, inference$vectors[[2L]], direction, cfg$K0,
+    cfg$bootstrap_replications, cfg$confidence_level, cfg$master_seed, cfg$ncores, 2L
+  )
+  bootstrap_summary <- summarize_eeg_lateralization_bootstrap(
+    bootstrap_draws, table, cfg$confidence_level, 2L
+  )
+  pipeline_log(sprintf("EEGMMIDB | MATCHED LATERALIZATION BOOTSTRAP COMPLETE | elapsed=%s",
+                       format_elapsed(bootstrap_started_at)))
 
   cfg$n_subjects <- n
   cfg$p_channels <- prepared$n_channels
   cfg$n_time_points <- prepared$n_time_points
   run_id <- make_run_id(
     "real_eegmmidb", cfg,
-    c("run", "n_subjects", "p_channels", "n_time_points", "band_hz", "output_hz", "K0", "J")
+    c("run", "n_subjects", "p_channels", "n_time_points", "band_hz", "output_hz",
+      "K0", "J", "eigengap_definition", "fpca_equality_draws",
+      "fpca_equality_seed")
   )
   paths <- real_data_paths(cfg$root, "eegmmidb")
   prefix <- file.path(paths$output, run_id)
@@ -322,11 +402,32 @@ run_eegmmidb_analysis <- function(config = list()) {
     table = paste0(prefix, "__spectral_inference.tex")
   )
   artifacts$fpca_comparison <- paste0(prefix, "__pc2_lateralization_fpca_vs_proposed.csv")
+  artifacts$pc1_pc6_inference <- paste0(prefix, "__pc1_pc6_inference.csv")
+  artifacts$adjacent_gap_inference <- paste0(prefix, "__adjacent_gap_inference.csv")
+  artifacts$adjacent_gap_k0_sensitivity <- paste0(prefix, "__adjacent_gap_k0_sensitivity.csv")
+  artifacts$cluster_inference <- paste0(prefix, "__prespecified_candidate_cluster_inference.csv")
+  artifacts$lateralization_bootstrap_draws <- paste0(prefix, "__pc2_lateralization_bootstrap_draws.csv")
+  artifacts$lateralization_bootstrap_summary <- paste0(prefix, "__pc2_lateralization_bootstrap_summary.csv")
   write_csv_atomic(table, artifacts$inference)
   write_csv_atomic(data.frame(sample_pc = seq_along(fit$values), sample_eigenvalue = fit$values), artifacts$spectrum)
   write_csv_atomic(sensitivity, artifacts$k0_sensitivity)
   write_csv_atomic(prepared$preprocessing_log, artifacts$preprocessing_log)
   write_csv_atomic(fpca_comparison, artifacts$fpca_comparison)
+  write_csv_atomic(compact_components, artifacts$pc1_pc6_inference)
+  write_csv_atomic(compact_gaps, artifacts$adjacent_gap_inference)
+  write_csv_atomic(gap_sensitivity, artifacts$adjacent_gap_k0_sensitivity)
+  write_csv_atomic(cluster_inference, artifacts$cluster_inference)
+  write_csv_atomic(bootstrap_draws, artifacts$lateralization_bootstrap_draws)
+  write_csv_atomic(bootstrap_summary, artifacts$lateralization_bootstrap_summary)
+  write_csv_atomic(compact_components, file.path(paths$output, "eeg_pc1_pc6_inference.csv"))
+  write_csv_atomic(compact_gaps, file.path(paths$output, "eeg_adjacent_gap_inference.csv"))
+  write_csv_atomic(gap_sensitivity, file.path(paths$output, "eeg_adjacent_gap_k0_sensitivity.csv"))
+  write_csv_atomic(cluster_inference, file.path(paths$output, "eeg_candidate_cluster_inference.csv"))
+  write_csv_atomic(bootstrap_summary, file.path(paths$output, "eeg_pc2_lateralization_bootstrap_summary.csv"))
+  write_csv_atomic(
+    bootstrap_summary,
+    file.path(paths$output, "eeg_lateralisation_fpca_vs_proposed_bootstrap.csv")
+  )
   write_csv_atomic(fpca_comparison, file.path(paths$output, "eeg_pc2_lateralization_fpca_vs_proposed.csv"))
   write_csv_atomic(fpca_comparison, file.path(paths$output, "eeg_fpca_vs_proposed.csv"))
   write_csv_atomic(table, file.path(paths$output, "eegmmidb_spectral_inference.csv"))

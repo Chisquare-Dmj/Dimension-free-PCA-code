@@ -24,6 +24,11 @@ default_functional_asymptotic_config <- function() {
 
 prepare_functional_asymptotic_config <- function(config) {
   config$p_rule <- FUNCTIONAL_ASYMPTOTIC_P_RULE
+  if (length(config$replications) == length(config$n_values) &&
+      (is.null(names(config$replications)) ||
+       !all(as.character(config$n_values) %in% names(config$replications)))) {
+    names(config$replications) <- as.character(config$n_values)
+  }
   config$design_grid <- paste(
     paste0(config$scenarios, "-", unname(config$distributions[config$scenarios])),
     collapse = "-"
@@ -35,13 +40,20 @@ validate_functional_asymptotic_config <- function(config) {
   validate_positive_integer(config$N, "N")
   validate_positive_integer(config$M, "M")
   validate_positive_integer(config$K0, "K0")
-  if (config$K0 != config$M) stop("Experiment 2B baseline requires K0=M; sensitivity to K0 is studied separately.")
+  if (config$K0 != config$M) stop("Experiment 2B baseline requires K0=M; over-deflation is studied separately.")
   if (!length(config$n_values)) stop("n_values must not be empty.")
   invisible(lapply(config$n_values, validate_positive_integer, name = "n_values entry"))
   p_values <- functional_asymptotic_p(config$n_values)
   if ("F2_block" %in% config$scenarios && any(p_values %% 10L != 0L)) stop("Experiment 2B F2 requires p divisible by 10.")
   if (config$K0 >= min(config$n_values)) stop("K0 must be smaller than every n value.")
-  if (is.null(names(config$replications)) || !all(as.character(config$n_values) %in% names(config$replications))) stop("replications must be named by every n value.")
+  if (is.null(names(config$replications)) || !all(as.character(config$n_values) %in% names(config$replications))) {
+    stop(
+      "replications must be named by every n value; n_values=",
+      paste(config$n_values, collapse = ","), "; replication_names=",
+      paste(names(config$replications), collapse = ","),
+      "; replication_length=", length(config$replications), "."
+    )
+  }
   invisible(lapply(config$replications[as.character(config$n_values)], validate_positive_integer, name = "replications entry"))
   if (!all(config$scenarios %in% names(config$distributions))) stop("distributions must name every requested scenario.")
   if (!length(config$spike_indices) || any(config$spike_indices < 1L | config$spike_indices > config$M)) stop("spike_indices must lie between 1 and M.")
@@ -103,6 +115,12 @@ run_functional_asymptotic_experiment <- function(config = list()) {
           )
           row <- attach_truth_and_coverage(
             estimate, scenario_truth[scenario_truth$spike_index == j, ]
+          )
+          fpca_interval <- fpca_eigenvalue_interval(fit, j, cfg$confidence_level)
+          row <- cbind(row, fpca_interval)
+          row$fpca_alpha_covered <- as.integer(
+            row$fpca_alpha_ci_lower <= row$true_alpha &
+              row$true_alpha <= row$fpca_alpha_ci_upper
           )
           overlap <- feature_projection(fit, j, target_directions[[index]])
           row$experiment <- experiment; row$scenario <- scenario

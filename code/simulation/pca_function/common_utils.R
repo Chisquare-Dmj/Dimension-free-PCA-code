@@ -241,7 +241,7 @@ figure_method_scope <- function(quantity, comparison) {
     text
   )
   has_proposed <- grepl(
-    "proposed|phase margin|reliability|wald|studentized|k0-sensitivity|cumulant|population-spike",
+    "proposed|phase margin|reliability|wald|studentized|over-deflation|cumulant|population-spike",
     text
   )
   if (has_fpca && has_proposed) return("Both")

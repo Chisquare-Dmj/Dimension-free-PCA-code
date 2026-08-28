@@ -1,6 +1,5 @@
 Recorded software environment for the manuscript computations
 =============================================================
-
 The following versions were recorded on 2026-08-18 on the Linux computation
 server used for the manuscript analyses. No package lockfile was created for the
 original runs; this file records the software environment present when the public
@@ -19,9 +18,9 @@ R
 R version: 4.4.2 (2024-10-31)
 
 Non-base R packages used by the real-data workflow:
-  edfReader 1.2.1
-  signal    1.8-1
-  jsonlite  2.0.0
+edfReader 1.2.1
+signal 1.8-1
+jsonlite 2.0.0
 
 Note: `packageVersion("signal")` prints 1.8.1; the package DESCRIPTION records
 the CRAN version as 1.8-1. The versions above were read from the R 4.4 user
@@ -30,7 +29,7 @@ library on the computation server.
 Python
 ------
 Python: 3.10.14
-numpy:  1.23.5
+numpy: 1.23.5
 pandas: 2.2.1
 
 Dependency scope

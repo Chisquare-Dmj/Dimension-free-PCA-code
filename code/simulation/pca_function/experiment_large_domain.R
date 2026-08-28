@@ -1,4 +1,5 @@
-# Experiments 3A--3C: direction, repeated eigenspace, and dense-grid approximation.
+# Experiments 3A--3D: direction, repeated eigenspace, grid saturation, and
+# local eigengap inference.
 
 default_large_domain_config <- function() {
   list(
@@ -135,6 +136,162 @@ run_repeated_eigenspace_experiment <- function(config = list()) {
   write_csv_atomic(out, replicate_path); write_csv_atomic(truth_df, truth_path)
   register_experiment_run(experiment, run_id, list(replicate = replicate_path, truth = truth_path, config = config_path), cfg$root)
   invisible(out)
+}
+
+default_eigengap_config <- function() {
+  list(
+    n_values = c(150L, 300L, 600L),
+    replications = c(`150` = 2000L, `300` = 1500L, `600` = 1000L),
+    delta_grid = c(0, 0.5, 1, 2, 3), pair_alpha = 6,
+    decay = 1.1, M = 3L, K0 = 5L, distribution = "Gaussian",
+    gap_definition = "symmetric", fpca_equality_draws = 100000L,
+    fpca_equality_seed = 82471L,
+    ncores = 1L, master_seed = MASTER_SEED, confidence_level = 0.95,
+    root = PROJECT_ROOT
+  )
+}
+
+validate_eigengap_config <- function(config) {
+  validate_large_domain_config(config, "Experiment 3D")
+  if (!is.numeric(config$delta_grid) || !length(config$delta_grid) || any(config$delta_grid < 0)) {
+    stop("delta_grid must contain nonnegative local-gap parameters.")
+  }
+  if (!is.numeric(config$pair_alpha) || length(config$pair_alpha) != 1L || config$pair_alpha <= 3) {
+    stop("pair_alpha must exceed the fixed third population eigenvalue 3.")
+  }
+  if (!identical(config$gap_definition, "symmetric")) {
+    stop("Experiment 3D now uses the symmetric relative eigengap.")
+  }
+  if (config$fpca_equality_draws < 100000L) {
+    stop("Experiment 3D requires at least 100000 fixed Monte Carlo draws for the general FPCA equality test.")
+  }
+  invisible(config)
+}
+
+run_eigengap_experiment <- function(config = list()) {
+  cfg <- merge_config(default_eigengap_config(), config)
+  if (length(cfg$replications) == length(cfg$n_values) &&
+      (is.null(names(cfg$replications)) ||
+       !all(as.character(cfg$n_values) %in% names(cfg$replications)))) {
+    names(cfg$replications) <- as.character(cfg$n_values)
+  }
+  validate_eigengap_config(cfg)
+  # Warm the fixed Monte Carlo stream before forking so workers reuse the same
+  # reproducible null draws through copy-on-write memory.
+  fpca_null_standard_draws(cfg$fpca_equality_draws, cfg$fpca_equality_seed)
+  cfg$domain_rule <- "T-n-div-3"; cfg$basis_rule <- "N-2n"
+  experiment <- "experiment_3d_eigengap_inference"
+  run_id <- make_run_id(
+    experiment, cfg,
+    c("n_values", "replications", "delta_grid", "pair_alpha", "domain_rule",
+      "basis_rule", "decay", "M", "K0", "distribution", "gap_definition",
+      "fpca_equality_draws", "fpca_equality_seed")
+  )
+  config_path <- save_config_table(cfg, experiment, run_id, cfg$root)
+  all_results <- list(); all_truth <- list(); result_index <- 1L
+  alpha_level <- 1 - cfg$confidence_level
+
+  for (n in as.integer(cfg$n_values)) {
+    T <- as.integer(n / 3); N <- as.integer(2 * n)
+    R <- as.integer(cfg$replications[[as.character(n)]])
+    for (delta_index in seq_along(cfg$delta_grid)) {
+      delta <- cfg$delta_grid[delta_index]
+      values <- large_domain_spectrum(n, repeated = TRUE, N = N, T = T, decay = cfg$decay)
+      values[1] <- cfg$pair_alpha * (1 + delta / (2 * sqrt(n)))
+      values[2] <- cfg$pair_alpha * (1 - delta / (2 * sqrt(n)))
+      true_relative_gap <- symmetric_relative_gap(values[1], values[2])
+      if (abs(true_relative_gap - delta / sqrt(n)) > 1e-12) {
+        stop("The Experiment 3D symmetric-gap identity failed.")
+      }
+      all_truth[[result_index]] <- data.frame(
+        experiment = experiment, run_id = run_id, n = n, T = T, N = N,
+        delta = delta, alpha1 = values[1], alpha2 = values[2],
+        true_relative_gap = true_relative_gap, true_gap_sym = true_relative_gap,
+        M = cfg$M, K0 = cfg$K0,
+        decay = cfg$decay, stringsAsFactors = FALSE
+      )
+
+      worker <- function(replication) {
+        set.seed(replication_seed(10L + delta_index, replication, cfg$master_seed))
+        X <- sample_large_domain_coefficients(n, values, cfg$distribution)
+        fit <- gram_pca(X, vectors = TRUE, center = FALSE)
+        fpca <- fpca_pair_inference(
+          fit, 1L, cfg$confidence_level, cfg$fpca_equality_draws,
+          cfg$fpca_equality_seed, known_distinct = FALSE
+        )
+        gap <- multiplicity2_gap_inference(
+          fit$values, 1L, n, cfg$K0, cfg$confidence_level
+        )
+        data.frame(
+          experiment = experiment, scenario = "local_multiplicity2_gap",
+          score_distribution = cfg$distribution, n = n, p = NA_integer_,
+          T = T, N = N, m = NA_integer_, replication = replication,
+          spike_index = 1L, K0 = cfg$K0, delta = delta,
+          true_alpha_upper = values[1], true_alpha_lower = values[2],
+          true_relative_gap = true_relative_gap, true_gap_sym = true_relative_gap,
+          sample_absolute_gap = gap$sample_lambda_upper - gap$sample_lambda_lower,
+          corrected_absolute_gap = gap$alpha_hat_upper - gap$alpha_hat_lower,
+          raw_relative_gap = gap$raw_relative_gap_legacy,
+          fpca_gap_sym = fpca$fpca_gap_sym,
+          fpca_gap_ci_lower = fpca$fpca_gap_wald_ci_lower,
+          fpca_gap_ci_upper = fpca$fpca_gap_wald_ci_upper,
+          fpca_gap_ci_raw_lower = fpca$fpca_gap_wald_ci_raw_lower,
+          fpca_gap_ci_raw_upper = fpca$fpca_gap_wald_ci_raw_upper,
+          fpca_gap_wald_se = fpca$fpca_gap_wald_se,
+          fpca_gap_wald_regular = FALSE,
+          fpca_gap_wald_status = "nonregular_local_to_tie",
+          fpca_gap_wald_use = "not_for_inference",
+          fpca_gap_covered = NA_integer_,
+          fpca_gap_ci_length = fpca$fpca_gap_wald_ci_upper - fpca$fpca_gap_wald_ci_lower,
+          fpca_p_equal = fpca$fpca_p_equal_general,
+          fpca_p_equal_general = fpca$fpca_p_equal_general,
+          fpca_reject_equal_05 = as.integer(fpca$fpca_p_equal_general < alpha_level),
+          fpca_anderson_Q = fpca$fpca_anderson_Q,
+          fpca_anderson_p_equal = fpca$fpca_anderson_p_equal,
+          fpca_anderson_reject_equal_05 = as.integer(fpca$fpca_anderson_p_equal < alpha_level),
+          corrected_relative_gap = gap$corrected_relative_gap_legacy,
+          proposed_gap_sym = gap$proposed_gap_sym,
+          proposed_gap_ci_lower = gap$proposed_gap_ci_boundary_lower,
+          proposed_gap_ci_upper = gap$proposed_gap_ci_boundary_upper,
+          proposed_gap_ci_raw_lower = gap$proposed_gap_ci_raw_lower,
+          proposed_gap_ci_raw_upper = gap$proposed_gap_ci_raw_upper,
+          proposed_gap_ci_raw_empty = gap$proposed_gap_ci_raw_empty,
+          proposed_gap_upper95 = gap$proposed_gap_upper95,
+          proposed_gap_upper95_boundary_fallback =
+            gap$proposed_gap_upper95_boundary_fallback,
+          proposed_gap_covered = as.integer(
+            gap$proposed_gap_ci_boundary_lower <= true_relative_gap &&
+              true_relative_gap <= gap$proposed_gap_ci_boundary_upper
+          ),
+          proposed_gap_upper_covered = as.integer(true_relative_gap <= gap$proposed_gap_upper95),
+          proposed_gap_ci_length = gap$proposed_gap_ci_boundary_upper - gap$proposed_gap_ci_boundary_lower,
+          proposed_p_equal = gap$p_proposed,
+          proposed_reject_equal_05 = as.integer(gap$p_proposed < alpha_level),
+          Delta_pool = gap$Delta_pool, r2_pool = gap$r2_pool,
+          T_sample_HC = gap$T_sample_HC, T2_proposed = gap$T2_proposed,
+          sample_HC_p_equal = gap$p_sample_HC,
+          absolute_HC_proposed_p_difference = abs(gap$p_sample_HC - gap$p_proposed),
+          gap_inference_valid = gap$proposed_gap_local_inference_valid,
+          fpca_score_identity_error = fpca$fpca_pair_score_identity_error
+        )
+      }
+      all_results[[result_index]] <- add_run_metadata(
+        bind_rows_base(parallel_map(seq_len(R), worker, cfg$ncores)), cfg, run_id, R
+      )
+      progress_message(paste("Experiment 3D n=", n, "delta=", delta), R, R)
+      result_index <- result_index + 1L
+    }
+  }
+  output <- standardize_replicate_output(bind_rows_base(all_results))
+  truth_df <- bind_rows_base(all_truth)
+  replicate_path <- run_artifact_path("replicate", run_id, "replicates", "csv", cfg$root)
+  truth_path <- run_artifact_path("truth", run_id, "truth", "csv", cfg$root)
+  write_csv_atomic(output, replicate_path); write_csv_atomic(truth_df, truth_path)
+  register_experiment_run(
+    experiment, run_id,
+    list(replicate = replicate_path, truth = truth_path, config = config_path), cfg$root
+  )
+  invisible(output)
 }
 
 default_grid_saturation_config <- function() {

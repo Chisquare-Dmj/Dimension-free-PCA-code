@@ -34,6 +34,9 @@ default_capture24_config <- function() {
     confidence_level = 0.95,
     certification_threshold = 0.20,
     minimum_relative_gap = 0.05,
+    eigengap_definition = "symmetric-v1",
+    fpca_equality_draws = 100000L,
+    fpca_equality_seed = 82471L,
     master_seed = MASTER_SEED,
     ncores = 10L,
     root = PROJECT_ROOT,
@@ -62,6 +65,10 @@ validate_capture24_config <- function(config) {
   }
   if (config$J > config$K0 || !config$K0 %in% config$K0_values) {
     stop("J cannot exceed K0, and K0_values must contain the primary K0.")
+  }
+  if (!identical(config$eigengap_definition, "symmetric-v1") ||
+      config$fpca_equality_draws < 100000L) {
+    stop("CAPTURE-24 requires symmetric eigengaps and at least 100000 FPCA null draws.")
   }
   if (config$preprocessing_cores < 1L || config$preprocessing_chunk_rows < 500L) {
     stop("preprocessing_cores and preprocessing_chunk_rows must be positive.")
@@ -237,10 +244,14 @@ capture24_domain_fit <- function(weighted_X, hours, config) {
   m <- as.integer(hours * 3600 / config$epoch_seconds)
   X <- weighted_X[, seq_len(m), drop = FALSE]
   fit <- gram_pca(X, vectors = TRUE, center = TRUE)
-  inference <- infer_real_components(
+  inference_result <- infer_real_components(
     fit, config$K0, config$J, config$confidence_level,
-    config$certification_threshold, config$minimum_relative_gap
-  )$table
+    config$certification_threshold, config$minimum_relative_gap,
+    equality_draws = config$fpca_equality_draws,
+    equality_seed = config$fpca_equality_seed
+  )
+  inference <- inference_result$table
+  gaps <- inference_result$gaps
   total <- sum(fit$values)
   inference$domain_hours <- hours
   inference$grid_size <- m
@@ -249,6 +260,9 @@ capture24_domain_fit <- function(weighted_X, hours, config) {
   inference$effective_rank_over_n <- inference$sample_effective_rank / nrow(X)
   inference$pc1_variance_percent <- 100 * fit$values[1] / total
   inference$cumulative_pc1_5_percent <- 100 * sum(head(fit$values, 5L)) / total
+  gaps$domain_hours <- hours
+  gaps$grid_size <- m
+  gaps$n_subjects <- nrow(X)
   spectrum_count <- min(30L, length(fit$values) - 1L)
   spectrum <- data.frame(
     domain_hours = hours,
@@ -259,7 +273,7 @@ capture24_domain_fit <- function(weighted_X, hours, config) {
       (fit$values[seq_len(spectrum_count)] - fit$values[seq_len(spectrum_count) + 1L]) /
       fit$values[seq_len(spectrum_count)]
   )
-  list(fit = fit, inference = inference, spectrum = spectrum)
+  list(fit = fit, inference = inference, gaps = gaps, spectrum = spectrum)
 }
 
 summarize_capture24_pilot <- function(domain_inference) {
@@ -443,7 +457,7 @@ write_capture24_main_inference_table <- function(data, path) {
   display$PC <- as.character(as.integer(display$PC))
   write_latex_table(
     display, path, digits = 3L,
-    caption = "CAPTURE-24 leading regular components",
+    caption = "CAPTURE-24 leading component estimates",
     label = "tab:capture24-leading-components"
   )
 }
@@ -562,6 +576,11 @@ run_capture24_analysis <- function(config = list()) {
   stage <- Sys.time(); pipeline_log("CAPTURE-24 | NESTED-DOMAIN PCA START")
   domain_results <- lapply(cfg$domain_hours, function(hours) capture24_domain_fit(X, hours, cfg))
   domains <- bind_rows_base(lapply(domain_results, `[[`, "inference"))
+  domain_gaps <- bind_rows_base(lapply(domain_results, `[[`, "gaps"))
+  domains$prespecified_cluster_member <-
+    domains$domain_hours == 24 & domains$spike_index %in% 3:6
+  domain_gaps$prespecified_cluster_member <-
+    domain_gaps$domain_hours == 24 & domain_gaps$pair %in% c("PC3-PC4", "PC5-PC6")
   domain_spectrum <- bind_rows_base(lapply(domain_results, `[[`, "spectrum"))
   pilot <- summarize_capture24_pilot(domains)
   pilot_decision <- assess_capture24_pilot(pilot)
@@ -572,9 +591,15 @@ run_capture24_analysis <- function(config = list()) {
   inference <- infer_real_components(
     full_fit, cfg$K0, cfg$J, cfg$confidence_level,
     cfg$certification_threshold, cfg$minimum_relative_gap,
-    directions = list(wake_aligned = direction), orientation_direction = direction
+    directions = list(wake_aligned = direction), orientation_direction = direction,
+    equality_draws = cfg$fpca_equality_draws,
+    equality_seed = cfg$fpca_equality_seed
   )
   table <- inference$table
+  primary_gaps <- inference$gaps
+  capture_candidate_pairs <- c("PC3-PC4", "PC5-PC6")
+  table$prespecified_cluster_member <- table$spike_index %in% 3:6
+  primary_gaps$prespecified_cluster_member <- primary_gaps$pair %in% capture_candidate_pairs
   table$dataset <- "CAPTURE_24_free_living_wrist_accelerometry"
   table$n_subjects <- nrow(X)
   table$domain_hours <- 24
@@ -587,6 +612,13 @@ run_capture24_analysis <- function(config = list()) {
     result <- k0_sensitivity(
       domain_results[[index]]$fit, cfg$K0_values, cfg$J,
       cfg$confidence_level, cfg$certification_threshold, cfg$minimum_relative_gap
+    )
+    result$domain_hours <- cfg$domain_hours[index]
+    result
+  }))
+  gap_sensitivity <- bind_rows_base(lapply(seq_along(domain_results), function(index) {
+    result <- gap_k0_sensitivity(
+      domain_results[[index]]$fit, cfg$K0_values, cfg$J, cfg$confidence_level
     )
     result$domain_hours <- cfg$domain_hours[index]
     result
@@ -604,6 +636,15 @@ run_capture24_analysis <- function(config = list()) {
 
   leading_components <- table[table$spike_index %in% 1:2, , drop = FALSE]
   cluster_diagnostics <- capture24_cluster_diagnostics(table)
+  compact_components <- compact_real_component_inference(table)
+  compact_components$domain_hours <- 24
+  all_domain_components <- bind_rows_base(lapply(cfg$domain_hours, function(hours) {
+    x <- compact_real_component_inference(domains[domains$domain_hours == hours, , drop = FALSE])
+    x$domain_hours <- hours
+    x
+  }))
+  compact_gaps <- compact_real_gap_inference(primary_gaps)
+  cluster_inference <- prespecified_cluster_inference(primary_gaps, capture_candidate_pairs)
   fpca_comparison <- capture24_fpca_vs_proposed(domains, domain_spectrum)
 
   cfg$n_subjects <- nrow(X); cfg$grid_size <- ncol(X)
@@ -611,7 +652,8 @@ run_capture24_analysis <- function(config = list()) {
     "real_capture24", cfg,
     c("n_subjects", "grid_size", "domain_hours", "epoch_seconds",
       "sleep_gap_tolerance_minutes", "minimum_main_sleep_hours",
-      "K0", "J")
+      "K0", "J", "eigengap_definition", "fpca_equality_draws",
+      "fpca_equality_seed")
   )
   paths <- real_data_paths(cfg$root, "capture24")
   prefix <- file.path(paths$output, run_id)
@@ -639,6 +681,11 @@ run_capture24_analysis <- function(config = list()) {
     wake_anchor_table = paste0(prefix, "__wake_anchor_sensitivity.tex"),
     fpca_comparison = paste0(prefix, "__fpca_vs_proposed.csv")
   )
+  artifacts$pc1_pc6_inference <- paste0(prefix, "__pc1_pc6_inference.csv")
+  artifacts$all_domain_pc1_pc6_inference <- paste0(prefix, "__all_domain_pc1_pc6_inference.csv")
+  artifacts$adjacent_gap_inference <- paste0(prefix, "__adjacent_gap_inference.csv")
+  artifacts$adjacent_gap_k0_sensitivity <- paste0(prefix, "__adjacent_gap_k0_sensitivity.csv")
+  artifacts$cluster_inference <- paste0(prefix, "__prespecified_candidate_cluster_inference.csv")
   write_csv_atomic(table, artifacts$inference)
   write_csv_atomic(domains, artifacts$domain_expansion)
   write_csv_atomic(domain_spectrum, artifacts$domain_spectrum)
@@ -654,6 +701,16 @@ run_capture24_analysis <- function(config = list()) {
   write_csv_atomic(leading_components, artifacts$main_inference)
   write_csv_atomic(cluster_diagnostics, artifacts$cluster_diagnostics)
   write_csv_atomic(fpca_comparison, artifacts$fpca_comparison)
+  write_csv_atomic(compact_components, artifacts$pc1_pc6_inference)
+  write_csv_atomic(all_domain_components, artifacts$all_domain_pc1_pc6_inference)
+  write_csv_atomic(compact_gaps, artifacts$adjacent_gap_inference)
+  write_csv_atomic(gap_sensitivity, artifacts$adjacent_gap_k0_sensitivity)
+  write_csv_atomic(cluster_inference, artifacts$cluster_inference)
+  write_csv_atomic(compact_components, file.path(paths$output, "capture24_pc1_pc6_inference.csv"))
+  write_csv_atomic(all_domain_components, file.path(paths$output, "capture24_all_domain_pc1_pc6_inference.csv"))
+  write_csv_atomic(compact_gaps, file.path(paths$output, "capture24_adjacent_gap_inference.csv"))
+  write_csv_atomic(gap_sensitivity, file.path(paths$output, "capture24_adjacent_gap_k0_sensitivity.csv"))
+  write_csv_atomic(cluster_inference, file.path(paths$output, "capture24_candidate_cluster_inference.csv"))
   write_csv_atomic(fpca_comparison, file.path(paths$output, "capture24_fpca_vs_proposed.csv"))
   write_csv_atomic(table, file.path(paths$output, "capture24_spectral_inference.csv"))
   write_csv_atomic(domains, file.path(paths$output, "capture24_domain_analysis.csv"))
@@ -721,10 +778,10 @@ plot_capture24_results <- function(root = PROJECT_ROOT, run_id = NULL) {
       plot(x$sample_pc, x$sample_eigenvalue, type = "b", pch = 16, log = "y", col = "grey35",
            xlab = "Sample PC", ylab = "Sample eigenvalue")
       points(x$sample_pc[1:2], x$sample_eigenvalue[1:2], pch = 16, col = "#0072B2", cex = 1.25)
-      legend("topright", c("Leading regular PCs", "Remaining spectrum"),
+      legend("topright", c("PC1-PC2", "Remaining spectrum"),
              col = c("#0072B2", "grey35"), pch = 16, bty = "n")
     }, root, "capture24", source_run_id = run_id, setting = "24-hour wake-aligned curve",
-    quantity = "sample spectrum", comparison = "leading regular PCs and remaining spectrum")
+    quantity = "sample spectrum", comparison = "PC1-PC2 and remaining sample spectrum")
   outputs$effective_rank <- save_real_publication_figure(
     "capture24_effective_rank", summary, function(x) {
       plot(x$domain_hours, x$sample_effective_rank, type = "b", pch = 16, col = "#0072B2", lwd = 2,
@@ -749,6 +806,25 @@ plot_capture24_results <- function(root = PROJECT_ROOT, run_id = NULL) {
            xlab = "Wake-aligned domain length (hours)", ylab = "PC1 variance explained (%)")
     }, root, "capture24", source_run_id = run_id, setting = "6, 12, 18, and 24 hours",
     quantity = "sample FPCA PVE", comparison = "none")
+  diagnostics <- domains[
+    domains$domain_hours == 24 & domains$spike_index %in% 1:6,
+    c("spike_index", "hat_Delta", "phase_lower_bound", "hat_r2"), drop = FALSE
+  ]
+  outputs$phase <- save_real_publication_figure(
+    "capture24_pc1_pc6_phase_reliability", diagnostics, function(x) {
+      limits <- range(c(x$hat_Delta, x$phase_lower_bound, x$hat_r2), finite = TRUE)
+      padding <- max(0.01, 0.08 * diff(limits))
+      plot(x$spike_index, x$hat_Delta, type = "b", pch = 16, col = "#0072B2",
+           ylim = limits + c(-padding, padding), xlab = "Sample PC", ylab = "Estimate")
+      lines(x$spike_index, x$phase_lower_bound, type = "b", pch = 17,
+            lty = 2, col = "#D55E00")
+      lines(x$spike_index, x$hat_r2, type = "b", pch = 15, col = "#009E73")
+      legend("bottomleft", c("Phase margin", "Phase lower bound", "Reliability"),
+             col = c("#0072B2", "#D55E00", "#009E73"), pch = c(16, 17, 15),
+             lty = c(1, 2, 1), bty = "n")
+    }, root, "capture24", source_run_id = run_id,
+    setting = "24-hour wake-aligned curve; primary K0=8",
+    quantity = "phase margin and reliability estimates", comparison = "sample PCs 1--6")
   for (j in 1:2) {
     z <- comparison[comparison$PC == paste0("PC", j), ]
     outputs[[paste0("pc", j, "_eigenvalue")]] <- save_real_publication_figure(

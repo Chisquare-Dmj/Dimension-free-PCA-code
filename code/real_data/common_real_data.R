@@ -145,6 +145,9 @@ component_separation_diagnostics <- function(eigenvalues, indices) {
   bind_rows_base(rows)
 }
 
+# Legacy descriptive gap diagnostic retained for backward compatibility only.
+# These 0.05-threshold fields are not inferential validity gates and are omitted
+# from the compact manuscript-facing PC1--PC6 output.
 refresh_component_separation_flags <- function(table, minimum_relative_gap = 0.05) {
   required <- c("hat_lambda", "sample_gap_previous", "sample_gap_next", "phase_lower_bound")
   missing <- setdiff(required, names(table))
@@ -174,16 +177,19 @@ refresh_component_separation_flags <- function(table, minimum_relative_gap = 0.0
 infer_real_components <- function(fit, K0, J, confidence_level = 0.95,
                                   certification_threshold = 0.20,
                                   minimum_relative_gap = 0.05,
-                                  directions = list(), orientation_direction = NULL) {
+                                  directions = list(), orientation_direction = NULL,
+                                  equality_draws = 100000L,
+                                  equality_seed = 82471L) {
   n <- fit$n
   J <- min(as.integer(J), as.integer(K0), length(fit$values) - 1L)
   if (J < 1L) stop("J must leave at least one empirical bulk eigenvalue.")
   rows <- lapply(seq_len(J), function(j) {
-    dimension_free_inference(
+    proposed <- dimension_free_inference(
       fit$values, j, K0, n,
       confidence_level = confidence_level,
       certification_threshold = certification_threshold
     )
+    cbind(proposed, fpca_eigenvalue_interval(fit, j, confidence_level))
   })
   inference <- bind_rows_base(rows)
   diagnostics <- component_separation_diagnostics(fit$values, seq_len(J))
@@ -191,6 +197,26 @@ infer_real_components <- function(fit, K0, J, confidence_level = 0.95,
   inference <- inference[order(inference$spike_index), , drop = FALSE]
   inference <- refresh_component_separation_flags(inference, minimum_relative_gap)
 
+  gap_table <- adjacent_gap_inference(
+    fit, K0, J, confidence_level = confidence_level,
+    equality_draws = equality_draws, equality_seed = equality_seed
+  )
+  inference$phase_valid <- inference$phase_interior
+  inference$fpca_simple_gap_wald_valid <- TRUE
+  inference$fpca_equality_rejected <- TRUE
+  inference$proposed_equality_rejected <- TRUE
+  inference$proposed_gap_local_inference_valid <- TRUE
+  inference$prespecified_cluster_member <- FALSE
+  for (j in seq_len(J)) {
+    adjacent <- gap_table[gap_table$upper_rank %in% c(j - 1L, j), , drop = FALSE]
+    if (nrow(adjacent)) {
+      inference$fpca_simple_gap_wald_valid[j] <- all(adjacent$fpca_gap_wald_regular)
+      inference$fpca_equality_rejected[j] <- all(adjacent$fpca_equality_rejected)
+      inference$proposed_equality_rejected[j] <- all(adjacent$proposed_equality_rejected)
+      inference$proposed_gap_local_inference_valid[j] <-
+        all(adjacent$proposed_gap_local_inference_valid)
+    }
+  }
   feature_vectors <- lapply(seq_len(J), function(j) feature_eigenvector(fit, j))
   if (!is.null(orientation_direction)) {
     orientation_direction <- normalize_direction(orientation_direction)
@@ -210,7 +236,132 @@ infer_real_components <- function(fit, K0, J, confidence_level = 0.95,
       )
     }
   }
-  list(table = inference, vectors = feature_vectors)
+  list(table = inference, vectors = feature_vectors, gaps = gap_table)
+}
+
+adjacent_gap_inference <- function(fit, K0, J, confidence_level = 0.95,
+                                   equality_draws = 100000L,
+                                   equality_seed = 82471L,
+                                   known_distinct = NULL) {
+  J <- min(as.integer(J), as.integer(K0), length(fit$values) - 1L)
+  alpha <- 1 - confidence_level
+  bind_rows_base(lapply(seq_len(J - 1L), function(j) {
+    gap <- multiplicity2_gap_inference(fit$values, j, fit$n, K0, confidence_level)
+    classical <- fpca_pair_inference(
+      fit, j, confidence_level, equality_draws, equality_seed + j,
+      known_distinct = known_distinct
+    )
+    pooled <- pooled_cluster_inference(fit$values, j:(j + 1L), K0, fit$n, confidence_level)
+    gap <- cbind(classical, gap)
+    gap$pair <- paste0("PC", j, "-PC", j + 1L)
+    gap$upper_rank <- j
+    gap$fpca_p_equal <- gap$fpca_p_equal_general
+    gap$proposed_p_equal <- gap$p_proposed
+    gap$sample_HC_p_equal <- gap$p_sample_HC
+    gap$fpca_reject_equal <- !is.na(gap$fpca_p_equal_general) && gap$fpca_p_equal_general < alpha
+    gap$proposed_reject_equal <- !is.na(gap$p_proposed) && gap$p_proposed < alpha
+    gap$phase_separation_certified <- pooled$pooled_Delta_one_sided_lower > 0
+    gap$gap_inference_valid <- gap$inference_valid &
+      pooled$pooled_inference_valid & gap$phase_separation_certified
+    gap$phase_valid <- gap$phase_separation_certified
+    gap$fpca_simple_gap_wald_valid <- gap$fpca_gap_wald_regular
+    gap$fpca_equality_rejected <- gap$fpca_reject_equal
+    gap$proposed_equality_rejected <- gap$proposed_reject_equal
+    gap$prespecified_cluster_member <- FALSE
+    gap$equality_evidence <- ifelse(
+      gap$fpca_reject_equal & gap$proposed_reject_equal, "both_reject_equality",
+      ifelse(!gap$fpca_reject_equal & !gap$proposed_reject_equal,
+             "both_insufficient_evidence", "methods_differ")
+    )
+    cbind(gap, pooled[, setdiff(names(pooled), c("lambda_pool")), drop = FALSE])
+  }))
+}
+
+compact_real_component_inference <- function(table) {
+  output <- table[, c(
+    "spike_index", "hat_lambda", "fpca_alpha_se", "fpca_alpha_ci_lower",
+    "fpca_alpha_ci_upper", "hat_alpha", "se_alpha", "ci_alpha_lower",
+    "ci_alpha_upper", "hat_Delta", "se_Delta", "ci_Delta_lower",
+    "ci_Delta_upper", "phase_lower_bound", "hat_r2", "se_r2",
+    "ci_r2_lower", "ci_r2_upper", "phase_valid",
+    "fpca_simple_gap_wald_valid", "fpca_equality_rejected",
+    "proposed_equality_rejected", "proposed_gap_local_inference_valid",
+    "prespecified_cluster_member"
+  ), drop = FALSE]
+  names(output) <- c(
+    "rank", "sample_eigenvalue", "fpca_eigenvalue_se",
+    "fpca_eigenvalue_ci_lower", "fpca_eigenvalue_ci_upper",
+    "proposed_alpha", "proposed_alpha_se", "proposed_alpha_ci_lower",
+    "proposed_alpha_ci_upper", "hat_Delta", "Delta_se", "Delta_ci_lower",
+    "Delta_ci_upper", "Delta_one_sided_lower", "hat_r2", "r2_se",
+    "r2_ci_lower", "r2_ci_upper", "phase_valid",
+    "fpca_gap_wald_regular", "fpca_equality_rejected",
+    "proposed_equality_rejected", "proposed_gap_local_inference_valid",
+    "prespecified_cluster_member"
+  )
+  output
+}
+
+compact_real_gap_inference <- function(gaps) {
+  output <- gaps[, c(
+    "pair", "raw_relative_gap_legacy", "sample_gap_sym", "fpca_gap_sym",
+    "fpca_gap_wald_se", "fpca_gap_wald_ci_raw_lower",
+    "fpca_gap_wald_ci_raw_upper", "fpca_gap_wald_ci_lower",
+    "fpca_gap_wald_ci_upper", "fpca_gap_wald_regular",
+    "fpca_p_equal_general", "fpca_anderson_Q", "fpca_anderson_p_equal",
+    "corrected_relative_gap_legacy", "proposed_gap_sym", "T_proposed",
+    "proposed_p_equal", "proposed_gap_ci_raw_lower",
+    "proposed_gap_ci_raw_upper", "proposed_gap_ci_raw_empty",
+    "proposed_gap_upper95", "proposed_gap_upper95_boundary_fallback",
+    "proposed_gap_ci_boundary_lower",
+    "proposed_gap_ci_boundary_upper", "Delta_pool", "r2_pool",
+    "T_sample_HC", "p_sample_HC", "phase_valid",
+    "fpca_equality_rejected",
+    "proposed_equality_rejected", "proposed_gap_local_inference_valid",
+    "prespecified_cluster_member", "equality_evidence"
+  ), drop = FALSE]
+  output$fpca_gap_ci_status <- ifelse(
+    output$fpca_gap_wald_regular,
+    "regular distinct-root interval",
+    "not valid under near-tie"
+  )
+  nonregular <- !output$fpca_gap_wald_regular
+  output$fpca_gap_wald_ci_lower[nonregular] <- NA_real_
+  output$fpca_gap_wald_ci_upper[nonregular] <- NA_real_
+  output
+}
+
+gap_k0_sensitivity <- function(fit, K0_values, J, confidence_level = 0.95,
+                               equality_draws = 100000L,
+                               equality_seed = 82471L) {
+  bind_rows_base(lapply(sort(unique(as.integer(K0_values))), function(K0) {
+    result <- adjacent_gap_inference(
+      fit, K0, min(J, K0), confidence_level,
+      equality_draws = equality_draws, equality_seed = equality_seed
+    )
+    result$K0_sensitivity <- K0
+    result
+  }))
+}
+
+prespecified_cluster_inference <- function(gaps, candidate_pairs) {
+  candidate_pairs <- unique(as.character(candidate_pairs))
+  parsed <- lapply(candidate_pairs, function(pair) {
+    as.integer(strsplit(sub("^PC", "", pair), "-PC", fixed = TRUE)[[1]])
+  })
+  members <- unlist(parsed, use.names = FALSE)
+  if (anyDuplicated(members)) stop("Prespecified candidate clusters must not overlap.")
+  keep <- gaps$pair %in% candidate_pairs
+  columns <- c(
+    "pair", "multiplicity", "lambda_pool", "pooled_alpha", "pooled_alpha_se",
+    "pooled_alpha_ci_lower", "pooled_alpha_ci_upper", "pooled_Delta",
+    "pooled_Delta_se", "pooled_Delta_ci_lower", "pooled_Delta_ci_upper",
+    "pooled_Delta_one_sided_lower", "pooled_r2", "pooled_r2_se",
+    "pooled_r2_ci_lower", "pooled_r2_ci_upper", "pooled_inference_valid"
+  )
+  output <- gaps[keep, columns, drop = FALSE]
+  output$candidate_status <- "prespecified_candidate_cluster"
+  output
 }
 
 k0_sensitivity <- function(fit, K0_values, J, confidence_level = 0.95,
@@ -232,13 +383,15 @@ write_real_inference_table <- function(data, path, dataset_label) {
   direction_columns <- grep("^corrected_", names(data), value = TRUE)
   columns <- c(
     "spike_index", "hat_lambda", "hat_alpha", "hat_Delta", "phase_lower_bound",
-    "hat_r2", direction_columns, "relative_neighbor_gap", "regular_inference_valid"
+    "hat_r2", direction_columns, "relative_neighbor_gap", "phase_valid",
+    "prespecified_cluster_member"
   )
   display <- data[, columns, drop = FALSE]
   direction_labels <- gsub("_", "-", sub("^corrected_", "Proposed ", direction_columns), fixed = TRUE)
   names(display) <- c(
     "PC", "$\\hat\\lambda$", "$\\hat\\alpha$", "$\\hat\\Delta$",
-    "Phase lower", "$\\hat r^2$", direction_labels, "Relative gap", "Regular"
+    "Phase lower", "$\\hat r^2$", direction_labels, "Relative gap", "Phase valid",
+    "Candidate cluster"
   )
   display$PC <- as.character(as.integer(display$PC))
   write_latex_table(

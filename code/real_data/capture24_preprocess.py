@@ -294,7 +294,7 @@ def write_outputs(results: list[dict], output_dir: Path, epoch_seconds: int, arc
     pd.DataFrame(results).to_csv(output_dir / "subject_qc.csv", index=False, quoting=csv.QUOTE_MINIMAL)
     manifest = {
         "dataset": "CAPTURE-24",
-        "source_archive": str(archive.resolve()),
+        "source_archive": archive.name,
         "participants": int(curves.shape[0]),
         "grid_size": int(curves.shape[1]),
         "epoch_seconds": int(epoch_seconds),

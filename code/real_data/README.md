@@ -1,50 +1,38 @@
 # Real-Data Code
 
-- `common_real_data.R`: centered Gram PCA, separation diagnostics, K0 sensitivity,
-  run manifests, tables, and figure output.
+- `common_real_data.R`: centered Gram PCA, classical FPCA and Proposed
+  adjacent-eigengap inference, prespecified candidate-cluster output, K0
+  sensitivity, tables, and publication-figure helpers.
 - `eegmmidb.R`: PhysioNet R04 download, EDF+ event parsing, 8--30 Hz log-power
   preprocessing, subject contrasts, lateralization direction, and analysis.
-- `capture24.R`: CAPTURE-24 archive verification, wake-aligned five-second
-  log-ENMO processing, nested-domain complexity diagnostics, K0 sensitivity,
-  preprocessing sensitivities, and deterministic analysis output.
-- `capture24_preprocess.py`: memory-bounded conversion of the 100 Hz CAPTURE-24
-  participant files. It does not implement PCA or inference.
+- `capture24.R`: CAPTURE-24 archive handling, wake-aligned five-second log-ENMO
+  construction, nested-domain diagnostics, sensitivity analyses, and inference.
+- `capture24_preprocess.py`: memory-bounded deterministic conversion of raw
+  accelerometry to the processed cache; it does not implement PCA inference.
 
-The public repository does not include the large raw datasets. It does include
-the processed EEG and CAPTURE-24 caches used by the manuscript analyses.
-Therefore two workflows are available.
-
-Analyze the included caches:
+Normal usage is through `main.R`:
 
 ```bash
 Rscript code/real_data/main.R dataset=eeg action=analyze ncores=10
 Rscript code/real_data/main.R dataset=capture24 action=analyze ncores=10
 ```
 
-Rebuild from the public source data:
+The public repository includes processed caches, so `action=analyze` does not
+redownload the raw data. Use `action=all` only for a complete source-data rebuild.
 
-```bash
-Rscript code/real_data/main.R dataset=eeg action=all ncores=10
-Rscript code/real_data/main.R dataset=capture24 action=all ncores=10
-```
+All PC1--PC6 estimates are saved independently of adjacent equality-test
+outcomes. A failure to reject equality means only that the data provide
+insufficient evidence to distinguish the two population roots; it does not
+automatically create a cluster. The only prespecified non-overlapping candidate
+clusters are PC3--PC4 and PC5--PC6 for CAPTURE-24, and PC3--PC4 for EEG.
 
-Separate `download` and `preprocess` actions are also available. Run-specific
-manifests are generated locally and are not committed; compact named outputs in
-`output/real_data/` and publication figures in `manuscript/real_data/` are
-retained in the repository.
+For classical FPCA, near-tie pairs retain the fixed-covariance equality p-value
+but the regular distinct-root Wald eigengap interval is suppressed in the
+manuscript-facing output and marked `not valid under near-tie`. Proposed
+component and phase diagnostics are not gated by FPCA decisions. The older 0.05
+descriptive relative-gap rule survives only in legacy/run-specific columns.
 
-The real-data analyses are deterministic sample analyses. CAPTURE-24 uses K0
-values 6, 8, and 10 for sensitivity checks and reports the 30-minute
-missingness and three-hour main-sleep sensitivities. EEG uses K0 values 8, 10,
-and 12 and reports the conventional and corrected PC2 lateralization point
-estimates. Because population truth is unavailable in real data, these
-comparisons are descriptive rather than accuracy or bias assessments.
-
-Software versions recorded on the computation server are listed in
-`software_versions.txt` at the repository root. The full EEG preprocessing path
-uses the R packages `edfReader` and `signal`; CAPTURE-24 preprocessing uses
-`jsonlite`, Python 3 with `numpy` and `pandas`, and the system commands `curl`,
-`unzip`, and `sha256sum`. On Windows, WSL or another Unix-compatible environment
-is recommended for the complete CAPTURE-24 rebuild. Analysis from the included
-processed caches does not require the CAPTURE-24 download/preprocessing command-line
-tools.
+EEG additionally reports matched 500-draw percentile intervals for the raw FPCA
+and reliability-corrected Proposed PC2 lateralization projections. These
+bootstrap intervals are an empirical comparison and are not consequences of the
+eigengap limit theory.

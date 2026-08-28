@@ -3,7 +3,7 @@
 # The selection, action, and configuration objects below are the normal user
 # interface. Select "sequence" for a complete experiment-by-experiment run,
 # "all" for the batch workflow, a numbered group ("1", "2", "3"), or one
-# branch ("1a", "1b", "2a", "2b", "3a", "3b", "3c", "k0", "universality").
+# branch ("1a", "1b", "2a", "2b", "3a", "3b", "3c", "3d", "k0", "universality").
 
 PIPELINE_MODE <- "help"
 PIPELINE_EXPERIMENT <- "help"
@@ -11,7 +11,7 @@ PIPELINE_ACTION <- "all"
 
 # The sequence runner completes every experiment bundle before starting the
 # next one. Edit this vector only when a different execution order is needed.
-PIPELINE_SEQUENCE <- c("1a", "1b", "2a", "2b", "3a", "3b", "3c", "k0", "universality")
+PIPELINE_SEQUENCE <- c("1a", "1b", "2a", "2b", "3a", "3b", "3c", "3d", "k0", "universality")
 
 PIPELINE_CONFIG <- list(
   # Number of parallel forked workers used for Monte Carlo replications.
@@ -36,6 +36,7 @@ PIPELINE_CONFIG <- list(
   experiment_3a = list(),
   experiment_3b = list(),
   experiment_3c = list(),
+  experiment_3d = list(),
   robustness_k0 = list(),
   robustness_universality = list()
 )
@@ -119,6 +120,16 @@ experiment_catalog <- function() {
       prepare = identity_config,
       id_fields = c("n", "T", "N", "m_values", "replications", "decay", "M", "K0", "distribution")
     ),
+    `3d` = list(
+      experiment = "experiment_3d_eigengap_inference", config_key = "experiment_3d",
+      defaults = default_eigengap_config, runner = run_eigengap_experiment,
+      prepare = function(config) { config$domain_rule <- "T-n-div-3"; config$basis_rule <- "N-2n"; config },
+      id_fields = c(
+        "n_values", "replications", "delta_grid", "pair_alpha", "domain_rule",
+        "basis_rule", "decay", "M", "K0", "distribution", "gap_definition",
+        "fpca_equality_draws", "fpca_equality_seed"
+      )
+    ),
     k0 = list(
       experiment = "robustness_k0", config_key = "robustness_k0",
       defaults = default_k0_robustness_config, runner = run_k0_robustness_experiment,
@@ -144,8 +155,8 @@ expand_experiment_selection <- function(selection) {
     sequence = PIPELINE_SEQUENCE,
     `1` = c("1a", "1b"), `1a` = "1a", `1b` = "1b",
     `2` = c("2a", "2b"), `2a` = "2a", `2b` = "2b",
-    `3` = c("3a", "3b", "3c"),
-    `3a` = "3a", `3b` = "3b", `3c` = "3c",
+    `3` = c("3a", "3b", "3c", "3d"),
+    `3a` = "3a", `3b` = "3b", `3c` = "3c", `3d` = "3d",
     robustness = c("k0", "universality"), k0 = "k0",
     universality = "universality"
   )
@@ -253,8 +264,15 @@ configured_experiment <- function(short_id, config) {
     configured$core_replications <- requested_replications
     configured$other_replications <- requested_replications
   }
-  if (short_id %in% c("2b", "3a", "3b", "k0") && length(configured$replications) == 1L) {
-    configured$replications <- setNames(rep(configured$replications, length(configured$n_values)), configured$n_values)
+  if (short_id %in% c("2b", "3a", "3b", "3d", "k0")) {
+    if (length(configured$replications) == 1L) {
+      configured$replications <- setNames(
+        rep(configured$replications, length(configured$n_values)), configured$n_values
+      )
+    } else if (!is.null(names(configured$replications)) &&
+               all(as.character(configured$n_values) %in% names(configured$replications))) {
+      configured$replications <- configured$replications[as.character(configured$n_values)]
+    }
   }
   requested_K0 <- config[["K0"]]
   local_K0 <- config[[specification$config_key]][["K0"]]
@@ -324,7 +342,7 @@ pipeline_modes <- function() {
     "simulate_1a_panel_phase", "simulate_1b_phase_margin",
     "simulate_2_functional_inference", "simulate_2b_functional_asymptotics",
     "simulate_3a_simple_direction", "simulate_3b_repeated_eigenspace",
-    "simulate_3c_grid_saturation",
+    "simulate_3c_grid_saturation", "simulate_3d_eigengap_inference",
     "simulate_robustness_k0", "simulate_robustness_universality",
     "simulate_all", "summarize_all",
     "plot_figure_2", "plot_figure_3", "plot_figure_4", "plot_robustness",
@@ -341,7 +359,7 @@ print_pipeline_help <- function() {
   cat("  Rscript code/simulation/main.R experiment=all ncores=20\n")
   cat("  Rscript code/simulation/main.R experiment=sequence ncores=20\n\n")
   cat("Actions: all (simulate + summarize + plot), simulate, summarize, plot.\n")
-  cat("Selections: sequence, all, 1, 1a, 1b, 2, 2a, 2b, 3, 3a, 3b, 3c, robustness, k0, universality.\n\n")
+  cat("Selections: sequence, all, 1, 1a, 1b, 2, 2a, 2b, 3, 3a, 3b, 3c, 3d, robustness, k0, universality.\n\n")
   cat("The sequence selection completes each experiment's full output bundle before starting the next one.\n\n")
   cat("Legacy mode interface remains available.\n")
   cat("Available modes:\n")
@@ -357,6 +375,7 @@ run_all_simulations <- function(config = list()) {
   run_simple_direction_experiment(experiment_config(default_large_domain_config(), config, "experiment_3a"))
   run_repeated_eigenspace_experiment(experiment_config(default_large_domain_config(), config, "experiment_3b"))
   run_grid_saturation_experiment(experiment_config(default_grid_saturation_config(), config, "experiment_3c"))
+  run_eigengap_experiment(experiment_config(default_eigengap_config(), config, "experiment_3d"))
   run_k0_robustness_experiment(experiment_config(default_k0_robustness_config(), config, "robustness_k0"))
   run_universality_stress_experiment(experiment_config(default_universality_config(), config, "robustness_universality"))
   invisible(NULL)
@@ -377,6 +396,10 @@ smoke_config <- function(config = list()) {
     experiment_3a = list(n_values = c(30L, 60L), replications = c(`30` = 3L, `60` = 3L)),
     experiment_3b = list(n_values = c(30L, 60L), replications = c(`30` = 3L, `60` = 3L)),
     experiment_3c = list(n = 30L, T = 10L, N = 20L, m_values = c(50L, 80L), replications = 3L),
+    experiment_3d = list(
+      n_values = c(30L, 60L), replications = c(`30` = 6L, `60` = 6L),
+      delta_grid = c(0, 1)
+    ),
     robustness_k0 = list(
       n_values = c(30L, 60L),
       replications = setNames(c(3L, 3L), c("30", "60")),
@@ -398,6 +421,7 @@ run_pipeline <- function(mode = PIPELINE_MODE, config = PIPELINE_CONFIG) {
   if (mode == "simulate_3a_simple_direction") return(run_simple_direction_experiment(experiment_config(default_large_domain_config(), config, "experiment_3a")))
   if (mode == "simulate_3b_repeated_eigenspace") return(run_repeated_eigenspace_experiment(experiment_config(default_large_domain_config(), config, "experiment_3b")))
   if (mode == "simulate_3c_grid_saturation") return(run_grid_saturation_experiment(experiment_config(default_grid_saturation_config(), config, "experiment_3c")))
+  if (mode == "simulate_3d_eigengap_inference") return(run_eigengap_experiment(experiment_config(default_eigengap_config(), config, "experiment_3d")))
   if (mode == "simulate_robustness_k0") return(run_k0_robustness_experiment(experiment_config(default_k0_robustness_config(), config, "robustness_k0")))
   if (mode == "simulate_robustness_universality") return(run_universality_stress_experiment(experiment_config(default_universality_config(), config, "robustness_universality")))
   if (mode == "simulate_all") return(run_all_simulations(config))
@@ -412,6 +436,7 @@ run_pipeline <- function(mode = PIPELINE_MODE, config = PIPELINE_CONFIG) {
     return(plot_all_saved_results(root, selected_runs))
   }
   if (mode == "smoke") {
+    run_eigengap_smoke_checks()
     smoke <- smoke_config(config)
     on.exit(unlink(smoke$root, recursive = TRUE, force = TRUE), add = TRUE)
     run_all_simulations(smoke)
@@ -454,7 +479,10 @@ if (sys.nframe() == 0L) {
       print_pipeline_help()
     } else {
       selected_ids <- expand_experiment_selection(selection)
-      if (any(selected_ids %in% c("2b", "3a", "3b", "k0")) && !is.null(cli$n) && is.null(cli$n_values)) cli$n_values <- cli$n
+      cli_n <- cli[["n", exact = TRUE]]
+      cli_n_values <- cli[["n_values", exact = TRUE]]
+      if (any(selected_ids %in% c("2b", "3a", "3b", "3d", "k0")) &&
+          !is.null(cli_n) && is.null(cli_n_values)) cli$n_values <- cli_n
       merged_config <- merge_config(PIPELINE_CONFIG, cli)
       catalog <- experiment_catalog()
       has_local_overrides <- any(vapply(selected_ids, function(id) length(merged_config[[catalog[[id]]$config_key]]) > 0L, logical(1)))

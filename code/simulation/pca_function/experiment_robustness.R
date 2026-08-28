@@ -1,4 +1,4 @@
-# Robustness experiments: K0 sensitivity and universality stress testing.
+# Robustness experiments: finite over-deflation and universality stress testing.
 
 default_k0_robustness_config <- function() {
   list(

@@ -1,44 +1,23 @@
 # Code
 
-This directory contains the active simulation and real-data code for
-"Dimension-Free Principal Component Analysis with High Complexity".
+This directory contains all active code used for the numerical supplement.
 
-- `simulation/main.R`: unified Monte Carlo, summary, and plotting entry point.
-- `simulation/pca_function/`: experiment implementations and shared inference utilities.
-- `real_data/main.R`: unified entry point for EEGMMIDB and CAPTURE-24.
-- `real_data/`: dataset-specific download/preprocessing code and shared analysis helpers.
-- `install_packages.R`: installs the additional R packages used by real-data preprocessing.
+- `simulation/main.R` is the unified Monte Carlo, summary, and plotting entry point.
+- `simulation/pca_function/` contains the experiment functions and shared utilities.
+- `real_data/main.R` is the unified entry point for all real-data applications.
+- `real_data/` also contains preprocessing and shared inference helpers.
+- `install_packages.R` installs the packages required by real-data preprocessing.
 
-Run commands from the repository root. Recorded software versions are listed in
-`software_versions.txt` at the repository root.
+Run both entry points from the project root:
 
 ```bash
-# Lightweight code check
-Rscript code/simulation/main.R mode=smoke
-
-# Full simulation sequence
 Rscript code/simulation/main.R experiment=sequence ncores=20
-
-# Analyze the processed real-data caches included in the repository
-Rscript code/real_data/main.R dataset=eeg action=analyze ncores=10
-Rscript code/real_data/main.R dataset=capture24 action=analyze ncores=10
-
-# Complete real-data rebuild from public source data
 Rscript code/real_data/main.R dataset=eeg action=all ncores=10
 Rscript code/real_data/main.R dataset=capture24 action=all ncores=10
+Rscript code/real_data/main.R dataset=sequence action=all ncores=10
 ```
 
-The public repository intentionally omits raw public datasets and Monte Carlo
-replication-level output. The corresponding directories are generated locally
-when the download or simulation pipelines are run. Compact processed data,
-summary CSV files, and manuscript figures are retained in the repository.
-
-Both simulation and real-data analyses call
-`simulation/pca_function/inference_utils.R`; there is no separate real-data
-implementation of the estimators. CAPTURE-24 uses Python only for streaming and
-compressing the raw accelerometry archive into the deterministic five-second
-analysis cache.
-
-For a full CAPTURE-24 rebuild on native Windows, use a Unix-compatible environment
-such as WSL; the raw-data pipeline calls `curl`, `unzip`, `sha256sum`, and
-`python3`. Cache-based `action=analyze` does not require these system commands.
+Both pipelines call `simulation/pca_function/inference_utils.R`; there is no
+separate Python or real-data reimplementation of the estimators. CAPTURE-24
+uses a Python helper only to stream and compress its roughly one billion raw
+accelerometer rows into a compact five-second matrix.

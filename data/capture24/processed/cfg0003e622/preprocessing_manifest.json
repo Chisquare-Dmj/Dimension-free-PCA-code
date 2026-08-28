@@ -1,6 +1,6 @@
 {
   "dataset": "CAPTURE-24",
-  "source_archive": "/home/zhanggy/large_domain_FDA/data/capture24/source/capture24.zip",
+  "source_archive": "capture24.zip (downloaded locally; not versioned)",
   "participants": 151,
   "grid_size": 17280,
   "epoch_seconds": 5,

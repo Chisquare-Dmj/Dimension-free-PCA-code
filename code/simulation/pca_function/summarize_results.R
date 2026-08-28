@@ -57,6 +57,7 @@ summarize_inference_performance <- function(data) {
 
 summarize_asymptotic_inference <- function(data) {
   group_apply(data, c("scenario", "score_distribution", "n", "p", "spike_index"), function(x) {
+    fpca_error <- x$hat_lambda - x$true_alpha
     alpha_relative_error <- (x$hat_alpha - x$true_alpha) / x$true_alpha
     alpha_relative_rmse <- 100 * sqrt(mean(alpha_relative_error^2, na.rm = TRUE))
     Delta_rmse <- sqrt(mean((x$hat_Delta - x$true_Delta)^2, na.rm = TRUE))
@@ -64,6 +65,18 @@ summarize_asymptotic_inference <- function(data) {
     data.frame(
       replications = nrow(x),
       true_alpha = x$true_alpha[1], true_Delta = x$true_Delta[1], true_r2 = x$true_r2[1],
+      fpca_alpha_mean = mean_or_na(x$hat_lambda),
+      proposed_alpha_mean = mean_or_na(x$hat_alpha),
+      fpca_alpha_bias = mean(fpca_error, na.rm = TRUE),
+      proposed_alpha_bias = mean(x$hat_alpha - x$true_alpha, na.rm = TRUE),
+      fpca_alpha_relative_bias_percent = 100 * mean(fpca_error / x$true_alpha, na.rm = TRUE),
+      proposed_alpha_relative_bias_percent = 100 * mean(alpha_relative_error, na.rm = TRUE),
+      fpca_alpha_rmse = sqrt(mean(fpca_error^2, na.rm = TRUE)),
+      proposed_alpha_rmse = sqrt(mean((x$hat_alpha - x$true_alpha)^2, na.rm = TRUE)),
+      fpca_alpha_coverage_percent = 100 * mean_or_na(x$fpca_alpha_covered),
+      proposed_alpha_coverage_percent = 100 * mean_or_na(x$cover_alpha),
+      fpca_alpha_mean_ci_length = mean_or_na(x$fpca_alpha_ci_length),
+      proposed_alpha_mean_ci_length = mean_or_na(x$ci_alpha_upper - x$ci_alpha_lower),
       alpha_relative_bias_percent = 100 * mean(alpha_relative_error, na.rm = TRUE),
       alpha_relative_rmse_percent = alpha_relative_rmse,
       alpha_scaled_relative_rmse_percent = sqrt(x$n[1]) * alpha_relative_rmse,
@@ -72,6 +85,7 @@ summarize_asymptotic_inference <- function(data) {
       alpha_coverage_percent = 100 * mean_or_na(x$cover_alpha),
       mean_se_alpha = mean_or_na(x$se_alpha),
       sqrt_n_mean_se_alpha = sqrt(x$n[1]) * mean_or_na(x$se_alpha),
+      proposed_Delta_mean = mean_or_na(x$hat_Delta),
       Delta_bias = mean(x$hat_Delta - x$true_Delta, na.rm = TRUE),
       Delta_rmse = Delta_rmse,
       Delta_scaled_rmse = sqrt(x$n[1]) * Delta_rmse,
@@ -80,6 +94,7 @@ summarize_asymptotic_inference <- function(data) {
       Delta_coverage_percent = 100 * mean_or_na(x$cover_Delta),
       mean_se_Delta = mean_or_na(x$se_Delta),
       sqrt_n_mean_se_Delta = sqrt(x$n[1]) * mean_or_na(x$se_Delta),
+      proposed_r2_mean = mean_or_na(x$hat_r2),
       r2_bias = mean(x$hat_r2 - x$true_r2, na.rm = TRUE),
       r2_rmse = r2_rmse,
       r2_scaled_rmse = sqrt(x$n[1]) * r2_rmse,
@@ -136,6 +151,44 @@ summarize_repeated <- function(data) {
       corrected_rmse = sqrt(mean((x$Q_corrected - x$Q_true)^2, na.rm = TRUE)),
       alignment_mean = mean_or_na(x$individual_alignment_repeated),
       alignment_sd = sd_or_na(x$individual_alignment_repeated)
+    )
+  })
+}
+
+summarize_eigengap_inference <- function(data) {
+  group_apply(data, c("n", "delta"), function(x) {
+    fpca_estimate <- if ("fpca_gap_sym" %in% names(x)) x$fpca_gap_sym else x$raw_relative_gap
+    proposed_estimate <- if ("proposed_gap_sym" %in% names(x)) x$proposed_gap_sym else x$corrected_relative_gap
+    fpca_error <- fpca_estimate - x$true_relative_gap
+    proposed_error <- proposed_estimate - x$true_relative_gap
+    data.frame(
+      replications = nrow(x),
+      true_relative_gap = x$true_relative_gap[1],
+      fpca_mean = mean_or_na(fpca_estimate),
+      proposed_mean = mean_or_na(proposed_estimate),
+      fpca_bias = mean_or_na(fpca_error), proposed_bias = mean_or_na(proposed_error),
+      fpca_rmse = sqrt(mean(fpca_error^2, na.rm = TRUE)),
+      proposed_rmse = sqrt(mean(proposed_error^2, na.rm = TRUE)),
+      proposed_coverage = mean_or_na(x$proposed_gap_covered),
+      proposed_mean_ci_length = mean_or_na(x$proposed_gap_ci_length),
+      fpca_gap_wald_status = "nonregular_local_to_tie",
+      fpca_gap_wald_use = "not_for_inference",
+      fpca_rejection_rate = mean_or_na(x$fpca_reject_equal_05),
+      fpca_anderson_rejection_rate = if ("fpca_anderson_reject_equal_05" %in% names(x)) {
+        mean_or_na(x$fpca_anderson_reject_equal_05)
+      } else NA_real_,
+      proposed_rejection_rate = mean_or_na(x$proposed_reject_equal_05),
+      proposed_upper_coverage = if ("proposed_gap_upper_covered" %in% names(x)) {
+        mean_or_na(x$proposed_gap_upper_covered)
+      } else NA_real_,
+      proposed_raw_interval_empty_rate = if ("proposed_gap_ci_raw_empty" %in% names(x)) {
+        mean_or_na(x$proposed_gap_ci_raw_empty)
+      } else NA_real_,
+      mean_Delta_pool = mean_or_na(x$Delta_pool),
+      mean_r2_pool = mean_or_na(x$r2_pool),
+      mean_absolute_HC_proposed_p_difference =
+        mean_or_na(x$absolute_HC_proposed_p_difference),
+      valid_fraction = mean_or_na(x$gap_inference_valid)
     )
   })
 }
@@ -418,9 +471,8 @@ write_latex_table <- function(data, path, digits = 3L, caption = NULL, label = N
   invisible(path)
 }
 
-write_asymptotic_inference_table <- function(data, path) {
+write_asymptotic_inference_table_legacy <- function(data, path) {
   panel_specifications <- list(
-    "Panel A: Population spike alpha (relative bias and RMSE in percent)" = c("alpha_relative_bias_percent", "alpha_relative_rmse_percent", "alpha_scaled_relative_rmse_percent", "empirical_sd_alpha", "mean_se_alpha", "alpha_sd_over_mean_se", "alpha_coverage_percent"),
     "Panel B: Phase margin Delta" = c("Delta_bias", "Delta_rmse", "Delta_scaled_rmse", "empirical_sd_Delta", "mean_se_Delta", "Delta_sd_over_mean_se", "Delta_coverage_percent"),
     "Panel C: Reliability r2" = c("r2_bias", "r2_rmse", "r2_scaled_rmse", "empirical_sd_r2", "mean_se_r2", "r2_sd_over_mean_se", "r2_coverage_percent")
   )
@@ -432,6 +484,23 @@ write_asymptotic_inference_table <- function(data, path) {
     "Scenario & Score & $n$ & $p$ & Spike & Bias & RMSE & $\\sqrt{n}$ RMSE & Emp. SD & Mean SE & SD/SE & Coverage (\\%) \\\\",
     "\\midrule"
   )
+  lines <- c(lines, "\\multicolumn{12}{l}{\\textit{Panel A: Population spike alpha; FPCA and Proposed estimate the same target}} \\\\")
+  for (i in seq_len(nrow(data))) {
+    for (method in c("FPCA", "Proposed")) {
+      prefix <- tolower(method)
+      values <- c(
+        escape_latex(paste0(data$scenario[i], " / ", method)),
+        escape_latex(data$score_distribution[i]), data$n[i], data$p[i], data$spike_index[i],
+        formatC(data[[paste0(prefix, "_alpha_mean")]][i], digits = 3L, format = "f"),
+        formatC(data[[paste0(prefix, "_alpha_bias")]][i], digits = 3L, format = "f"),
+        formatC(data[[paste0(prefix, "_alpha_rmse")]][i], digits = 3L, format = "f"),
+        "", "", "",
+        formatC(data[[paste0(prefix, "_alpha_coverage_percent")]][i], digits = 3L, format = "f")
+      )
+      lines <- c(lines, paste0(paste(values, collapse = " & "), " \\\\"))
+    }
+  }
+  lines <- c(lines, "\\addlinespace")
   for (panel_name in names(panel_specifications)) {
     columns <- panel_specifications[[panel_name]]
     lines <- c(lines, paste0("\\multicolumn{12}{l}{\\textit{", panel_name, "}} \\\\"))
@@ -444,6 +513,71 @@ write_asymptotic_inference_table <- function(data, path) {
       lines <- c(lines, paste0(paste(values, collapse = " & "), " \\\\"))
     }
     lines <- c(lines, "\\addlinespace")
+  }
+  lines <- c(lines, "\\bottomrule", "\\end{tabular}", "\\end{table}")
+  writeLines(lines, path, useBytes = TRUE)
+  invisible(path)
+}
+
+write_asymptotic_inference_table <- function(data, path) {
+  fmt <- function(x) ifelse(is.na(x), "", formatC(x, digits = 3L, format = "f"))
+  lines <- c(
+    "\\begin{table}[htbp]", "\\centering",
+    "\\caption{Functional inference along the high-complexity asymptotic sequence}",
+    "\\label{tab:functional-asymptotics}",
+    "\\begin{tabular}{llrrrlrrrrrrr}", "\\toprule",
+    paste0(
+      "Scenario & Score & $n$ & $p$ & Spike & Target/method & Mean & Bias & ",
+      "Rel. bias (\\%) & RMSE & Scale/CI & SD/SE & Coverage (\\%) \\\\"
+    ),
+    "\\midrule",
+    paste0(
+      "\\multicolumn{13}{l}{\\textit{Panel A: Population spike alpha; ",
+      "FPCA and Proposed estimate the same target}} \\\\"
+    )
+  )
+  for (i in seq_len(nrow(data))) {
+    for (method in c("FPCA", "Proposed")) {
+      prefix <- tolower(method)
+      values <- c(
+        escape_latex(data$scenario[i]), escape_latex(data$score_distribution[i]),
+        data$n[i], data$p[i], data$spike_index[i], method,
+        fmt(data[[paste0(prefix, "_alpha_mean")]][i]),
+        fmt(data[[paste0(prefix, "_alpha_bias")]][i]),
+        fmt(data[[paste0(prefix, "_alpha_relative_bias_percent")]][i]),
+        fmt(data[[paste0(prefix, "_alpha_rmse")]][i]),
+        fmt(data[[paste0(prefix, "_alpha_mean_ci_length")]][i]), "",
+        fmt(data[[paste0(prefix, "_alpha_coverage_percent")]][i])
+      )
+      lines <- c(lines, paste0(paste(values, collapse = " & "), " \\\\"))
+    }
+  }
+  proposed_panels <- list(
+    "Panel B: Phase margin Delta; Proposed only" = list(
+      target = "Proposed Delta", mean = "proposed_Delta_mean", bias = "Delta_bias",
+      rmse = "Delta_rmse", scale = "Delta_scaled_rmse",
+      ratio = "Delta_sd_over_mean_se", coverage = "Delta_coverage_percent"
+    ),
+    "Panel C: Reliability r2; Proposed only" = list(
+      target = "Proposed r2", mean = "proposed_r2_mean", bias = "r2_bias",
+      rmse = "r2_rmse", scale = "r2_scaled_rmse",
+      ratio = "r2_sd_over_mean_se", coverage = "r2_coverage_percent"
+    )
+  )
+  for (panel_name in names(proposed_panels)) {
+    specification <- proposed_panels[[panel_name]]
+    lines <- c(lines, "\\addlinespace",
+               paste0("\\multicolumn{13}{l}{\\textit{", panel_name, "}} \\\\"))
+    for (i in seq_len(nrow(data))) {
+      values <- c(
+        escape_latex(data$scenario[i]), escape_latex(data$score_distribution[i]),
+        data$n[i], data$p[i], data$spike_index[i], specification$target,
+        fmt(data[[specification$mean]][i]), fmt(data[[specification$bias]][i]), "",
+        fmt(data[[specification$rmse]][i]), fmt(data[[specification$scale]][i]),
+        fmt(data[[specification$ratio]][i]), fmt(data[[specification$coverage]][i])
+      )
+      lines <- c(lines, paste0(paste(values, collapse = " & "), " \\\\"))
+    }
   }
   lines <- c(lines, "\\bottomrule", "\\end{tabular}", "\\end{table}")
   writeLines(lines, path, useBytes = TRUE)
@@ -470,7 +604,7 @@ write_k0_robustness_table <- function(data, path) {
   )
   lines <- c(
     "\\begin{table}[htbp]", "\\centering",
-    "\\caption{Sensitivity to the number of leading components removed from the bulk estimate}",
+    "\\caption{Fixed over-deflation along the high-complexity asymptotic sequence}",
     "\\label{tab:k0-robustness}",
     "\\begin{tabular}{lrrrrrrrrr}", "\\toprule",
     "Score & $n$ & $p$ & $K_0$ & $K_0-M$ & Bias & RMSE & $\\sqrt{n}$ RMSE & $n$ RMSE & Coverage (\\%) \\\\",
@@ -546,6 +680,7 @@ summary_specifications <- function() {
     experiment_3a_simple_direction = list(FUN = summarize_direction, output = "simple_direction"),
     experiment_3b_repeated_eigenspace = list(FUN = summarize_repeated, output = "repeated_eigenspace"),
     experiment_3c_grid_saturation = list(FUN = summarize_grid, output = "grid_saturation"),
+    experiment_3d_eigengap_inference = list(FUN = summarize_eigengap_inference, output = "eigengap_inference"),
     robustness_k0 = list(FUN = summarize_k0, output = "k0_robustness", writer = write_k0_robustness_table),
     robustness_universality = list(FUN = summarize_universality, output = "universality_stress", writer = write_universality_table)
   )
