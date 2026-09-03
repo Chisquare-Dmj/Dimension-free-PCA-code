@@ -1,4 +1,4 @@
 "n","replications","mean_squared_alignment","sd_squared_alignment","source_run_id"
-150,2000,0.429393290511925,0.304674172804838,"experiment_3b_repeated_eigenspace_n-values150-300-600_replications150x2000-300x1500-600x1000_domain-ruleT-n-div-3_basis-ruleN-2n_decay1p1_M3_K05_distributionGaussian_cfg001f14e6"
-300,1500,0.429536097765745,0.301331874156739,"experiment_3b_repeated_eigenspace_n-values150-300-600_replications150x2000-300x1500-600x1000_domain-ruleT-n-div-3_basis-ruleN-2n_decay1p1_M3_K05_distributionGaussian_cfg001f14e6"
-600,1000,0.436107969956935,0.306046413659408,"experiment_3b_repeated_eigenspace_n-values150-300-600_replications150x2000-300x1500-600x1000_domain-ruleT-n-div-3_basis-ruleN-2n_decay1p1_M3_K05_distributionGaussian_cfg001f14e6"
+150,2000,0.429393290511925,0.304674172804838,"experiment_3b_repeated_eigenspace_n-values150-300-600_replications150x2000-300x2000-600x2000_domain-ruleT-n-div-3_basis-ruleN-2n_decay1p1_M3_K05_distributionGaussian_cfg001f1457"
+300,2000,0.423026503270099,0.301704417604884,"experiment_3b_repeated_eigenspace_n-values150-300-600_replications150x2000-300x2000-600x2000_domain-ruleT-n-div-3_basis-ruleN-2n_decay1p1_M3_K05_distributionGaussian_cfg001f1457"
+600,2000,0.428577269132603,0.305343505355519,"experiment_3b_repeated_eigenspace_n-values150-300-600_replications150x2000-300x2000-600x2000_domain-ruleT-n-div-3_basis-ruleN-2n_decay1p1_M3_K05_distributionGaussian_cfg001f1457"

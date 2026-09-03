@@ -3,7 +3,7 @@
 default_k0_robustness_config <- function() {
   list(
     n_values = c(150L, 300L, 600L),
-    replications = setNames(c(2000L, 1500L, 1000L), c("150", "300", "600")),
+    replications = setNames(c(2000L, 2000L, 2000L), c("150", "300", "600")),
     p_rule = FUNCTIONAL_ASYMPTOTIC_P_RULE,
     N = 200L, decay = 1.1, M = 3L,
     K0_values = c(3L, 5L, 8L),

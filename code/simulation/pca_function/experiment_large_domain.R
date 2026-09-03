@@ -4,7 +4,7 @@
 default_large_domain_config <- function() {
   list(
     n_values = c(150L, 300L, 600L),
-    replications = c(`150` = 2000L, `300` = 1500L, `600` = 1000L),
+    replications = c(`150` = 2000L, `300` = 2000L, `600` = 2000L),
     decay = 1.1, M = 3L, K0 = 5L, distribution = "Gaussian",
     ncores = 1L, master_seed = MASTER_SEED, confidence_level = 0.95,
     certification_threshold = 0.20, root = PROJECT_ROOT
@@ -141,7 +141,7 @@ run_repeated_eigenspace_experiment <- function(config = list()) {
 default_eigengap_config <- function() {
   list(
     n_values = c(150L, 300L, 600L),
-    replications = c(`150` = 2000L, `300` = 1500L, `600` = 1000L),
+    replications = c(`150` = 2000L, `300` = 2000L, `600` = 2000L),
     delta_grid = c(0, 0.5, 1, 2, 3), pair_alpha = 6,
     decay = 1.1, M = 3L, K0 = 5L, distribution = "Gaussian",
     gap_definition = "symmetric", fpca_equality_draws = 100000L,
